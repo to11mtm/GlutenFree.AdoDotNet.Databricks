@@ -41,8 +41,10 @@ public sealed class DatabricksMappingSchema : LockedMappingSchema
         {
             switch (c)
             {
+                // Spark SQL uses backslash escaping; doubling quotes ('') is parsed as
+                // adjacent-literal concatenation and silently drops the quote.
                 case '\'':
-                    sb.Append("''");
+                    sb.Append(@"\'");
                     break;
                 case '\\':
                     sb.Append(@"\\");

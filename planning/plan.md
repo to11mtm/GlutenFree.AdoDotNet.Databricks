@@ -35,7 +35,11 @@
   (searched all blobs for token value + id — clean).
 - linq2db live-testing dialect fixes: SupportsColumnAliasesInSource=false and
   IsValuesSyntaxSupported=false (Databricks MERGE constraints); APPLY→LATERAL via BuildJoinType;
-  DatabricksBulkCopy routes MultipleRows/ProviderSpecific/Default to MultipleRowsCopy1.
+  DatabricksBulkCopy routes MultipleRows/ProviderSpecific/Default to MultipleRowsCopy1;
+  string literals escape quotes with backslash (Spark treats '' as literal concatenation).
+- Sync API is genuinely synchronous (HttpClient.Send pipeline end to end); async remains the
+  recommended default (documented in README "Async vs. sync").
+- Live linq2db test coverage: 21 integration tests (dialect + SQL bits + mapping schema).
 
 ## Live-test findings (corrected assumptions)
 - ARROW_STREAM delivers ARRAY/MAP/STRUCT as real Arrow nested arrays (not JSON strings);

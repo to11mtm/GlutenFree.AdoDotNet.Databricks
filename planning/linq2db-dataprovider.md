@@ -74,3 +74,9 @@ We should consider the other SqlProviderFlags carefully, and ensure that we are 
 - Live-run findings baked into the builder: Databricks MERGE rejects USING column-alias lists
   (`SupportsColumnAliasesInSource=false`) and bare VALUES sources yield unusable colN names
   (`IsValuesSyntaxSupported=false` → SELECT ... UNION ALL source form).
+- Live integration coverage extended (Linq2DbSqlBitsIntegrationTests, 11 tests): SelectQuery
+  inline, INNER/LEFT/RIGHT/FULL/CROSS joins, GROUP BY aggregates, EXISTS subqueries, IN/NOT IN,
+  UPDATE/DELETE lifecycle, and a mapping-schema literal round-trip of every mapped type
+  (bool, TIMESTAMP, DATE, DECIMAL, escaped STRING, BINARY X'..', Guid) via InlineParameters.
+- Live-run mapping schema fix: Spark SQL treats '' as adjacent-literal concatenation (silently
+  drops quotes); string literals must escape with backslash (\' and \\).
