@@ -1,6 +1,13 @@
 <Solution>
   <Folder Name="/reqs/">
     <File Path="planning/Adodotnet-databricks-provider.md" />
+    <File Path="planning/linq2db-dataprovider.md" />
     <File Path="planning/plan.md" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/Databricks.AdoNet/Databricks.AdoNet.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Databricks.AdoNet.Tests/Databricks.AdoNet.Tests.csproj" />
   </Folder>
 </Solution>
