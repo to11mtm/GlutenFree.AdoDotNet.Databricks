@@ -164,6 +164,30 @@ public sealed class DatabricksConnection : DbConnection
     public new DatabricksCommand CreateCommand() => new(this);
 
     /// <inheritdoc />
+    public override DataTable GetSchema() => GetSchema(DatabricksSchemaProvider.MetaDataCollections);
+
+    /// <inheritdoc />
+    public override DataTable GetSchema(string collectionName) => GetSchema(collectionName, []);
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Supported collections: <c>MetaDataCollections</c>, <c>Catalogs</c> (restriction: catalog),
+    /// <c>Schemas</c> (catalog, schema), <c>Tables</c> / <c>Views</c> (catalog, schema, table),
+    /// and <c>Columns</c> (catalog, schema, table, column), backed by
+    /// <c>system.information_schema</c>.
+    /// </remarks>
+    public override DataTable GetSchema(string collectionName, string?[] restrictionValues)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(collectionName);
+        if (!string.Equals(collectionName, DatabricksSchemaProvider.MetaDataCollections, StringComparison.OrdinalIgnoreCase))
+        {
+            EnsureOpen();
+        }
+
+        return DatabricksSchemaProvider.GetSchema(this, collectionName, restrictionValues);
+    }
+
+    /// <inheritdoc />
     protected override DbCommand CreateDbCommand() => CreateCommand();
 
     /// <inheritdoc />

@@ -7,15 +7,18 @@
 - Naming: `Databricks.AdoNet` namespace/package, `Databricks*` class prefix
 
 ## Phases
-1. Requirements doc (done — planning/Adodotnet-databricks-provider.md)
-2. Project scaffolding (src/tests/slnx, editorconfig, CI later)
-3. Connection string builder + parsing
-4. Auth (PAT, OAuth M2M client credentials, U2M later)
-5. Transport abstraction + REST Statement Execution client
-6. Core ADO.NET surface: DbConnection, DbCommand, DbParameter(Collection), DbDataReader
-7. Arrow result decoding + type mapping
-8. DbProviderFactory, batch, transactions (limited — see reqs), pooling story
-9. Tests: unit w/ mocked HTTP; integration gated on env vars
-10. Docs, samples, NuGet packaging
+1. ✅ Requirements doc (planning/Adodotnet-databricks-provider.md)
+2. ✅ Project scaffolding (src/tests/slnx, Directory.Build.props, editorconfig)
+3. ✅ Connection string builder + parsing (validation, secret redaction)
+4. ✅ Auth (PAT, OAuth M2M w/ cached single-flight refresh; U2M later)
+5. ✅ Transport abstraction + REST Statement Execution client (retry, polling, cancel)
+6. ✅ Core ADO.NET surface: DbConnection, DbCommand, DbParameter(Collection), DbDataReader
+7. ✅ Arrow result decoding + type mapping (SqlDecimal for p>28, LZ4 via Apache.Arrow.Compression)
+8. ✅ DbProviderFactory + GetSchema (Catalogs/Schemas/Tables/Views/Columns via system.information_schema, parameterized restrictions)
+9. Unit test gap-filling (Dapper smoke test) — 65 tests passing so far
+10. Integration tests gated on DATABRICKS_HOST/TOKEN/WAREHOUSE_ID env vars
+11. CI (GitHub Actions), NuGet packaging (SourceLink, license choice)
+12. Docs (README quickstart, type-mapping table, limitations), samples
+13. Stretch: DatabricksDecimal BigDecimal-style struct
 
 ## Work tracking: todos table in session SQL DB
