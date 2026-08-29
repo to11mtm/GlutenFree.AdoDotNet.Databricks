@@ -12,7 +12,7 @@ namespace GlutenFree.Databricks.AdoNet.Transport;
 /// <see cref="IDatabricksTransport"/> implementation backed by the Databricks
 /// SQL Statement Execution API (<c>/api/2.0/sql/statements</c>).
 /// </summary>
-public sealed class RestStatementTransport : IDatabricksTransport
+public sealed class RestStatementTransport : IDatabricksTransport, IDisposable
 {
     private static readonly JsonSerializerOptions s_jsonOptions = new(JsonSerializerDefaults.Web);
     private static readonly TimeSpan s_maxServerWait = TimeSpan.FromSeconds(50);
@@ -78,21 +78,7 @@ public sealed class RestStatementTransport : IDatabricksTransport
         var token = linkedCts.Token;
 
         // Ask the server to wait synchronously for a bounded time before we fall back to polling.
-        var serverWait = commandTimeout > TimeSpan.Zero && commandTimeout < s_maxServerWait
-            ? (commandTimeout < s_minServerWait ? s_minServerWait : commandTimeout)
-            : TimeSpan.FromSeconds(30);
-        var submitRequest = new StatementRequest
-        {
-            Statement = request.Statement,
-            WarehouseId = request.WarehouseId,
-            Catalog = request.Catalog,
-            Schema = request.Schema,
-            Parameters = request.Parameters,
-            Format = request.Format,
-            Disposition = request.Disposition,
-            WaitTimeout = $"{(int)serverWait.TotalSeconds}s",
-            OnWaitTimeout = "CONTINUE",
-        };
+        var submitRequest = BuildSubmitRequest(request, commandTimeout);
 
         StatementResponse response;
         try
@@ -116,26 +102,9 @@ public sealed class RestStatementTransport : IDatabricksTransport
         var pollDelay = TimeSpan.FromMilliseconds(200);
         while (true)
         {
-            switch (response.Status?.State)
+            if (CheckStatementState(statementId, response))
             {
-                case "SUCCEEDED":
-                    return response;
-
-                case "FAILED":
-                case "CANCELED":
-                case "CLOSED":
-                    throw CreateStatementException(statementId, response.Status);
-
-                case "PENDING":
-                case "RUNNING":
-                    break;
-
-                default:
-                    throw new DatabricksException(
-                        $"Statement '{statementId}' reported unknown state '{response.Status?.State}'.")
-                    {
-                        StatementId = statementId,
-                    };
+                return response;
             }
 
             try
@@ -196,6 +165,108 @@ public sealed class RestStatementTransport : IDatabricksTransport
     }
 
     /// <inheritdoc />
+    /// <remarks>Genuinely synchronous implementation using <see cref="HttpClient.Send(HttpRequestMessage, CancellationToken)"/>.</remarks>
+    public StatementResponse ExecuteStatement(
+        StatementRequest request, TimeSpan commandTimeout, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        using var timeoutCts = commandTimeout > TimeSpan.Zero
+            ? new CancellationTokenSource(commandTimeout, _timeProvider)
+            : null;
+        using var linkedCts = timeoutCts is null
+            ? CancellationTokenSource.CreateLinkedTokenSource(cancellationToken)
+            : CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+        var token = linkedCts.Token;
+
+        var submitRequest = BuildSubmitRequest(request, commandTimeout);
+
+        StatementResponse response;
+        try
+        {
+            response = SendJson<StatementResponse>(
+                () => new HttpRequestMessage(HttpMethod.Post, new Uri(_baseUri, "/api/2.0/sql/statements"))
+                {
+                    Content = JsonContent.Create(submitRequest, options: s_jsonOptions),
+                },
+                token);
+        }
+        catch (OperationCanceledException) when (timeoutCts?.IsCancellationRequested == true)
+        {
+            throw new DatabricksException($"Statement submission timed out after {commandTimeout}.");
+        }
+
+        var statementId = response.StatementId
+            ?? throw new DatabricksException("Statement submission response did not include a statement_id.");
+
+        var pollDelay = TimeSpan.FromMilliseconds(200);
+        while (true)
+        {
+            if (CheckStatementState(statementId, response))
+            {
+                return response;
+            }
+
+            try
+            {
+                token.ThrowIfCancellationRequested();
+                Thread.Sleep(pollDelay);
+                token.ThrowIfCancellationRequested();
+                response = SendJson<StatementResponse>(
+                    () => new HttpRequestMessage(HttpMethod.Get, StatementUri(statementId)),
+                    token);
+            }
+            catch (OperationCanceledException) when (
+                timeoutCts?.IsCancellationRequested == true || cancellationToken.IsCancellationRequested)
+            {
+                CancelStatementAsync(statementId, CancellationToken.None).GetAwaiter().GetResult();
+                cancellationToken.ThrowIfCancellationRequested();
+                throw new DatabricksException(
+                    $"Statement '{statementId}' timed out after {commandTimeout} and was canceled.")
+                {
+                    StatementId = statementId,
+                };
+            }
+
+            pollDelay = pollDelay >= s_maxPollDelay ? s_maxPollDelay : pollDelay * 2;
+        }
+    }
+
+    /// <inheritdoc />
+    public ResultData GetResultChunk(string statementId, int chunkIndex, CancellationToken cancellationToken)
+        => SendJson<ResultData>(
+            () => new HttpRequestMessage(
+                HttpMethod.Get,
+                new Uri(_baseUri, $"/api/2.0/sql/statements/{Uri.EscapeDataString(statementId)}/result/chunks/{chunkIndex}")),
+            cancellationToken);
+
+    /// <inheritdoc />
+    public byte[] DownloadExternalLink(ExternalLink link, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(link);
+        if (string.IsNullOrEmpty(link.Link))
+        {
+            throw new DatabricksException("External link did not contain a URL.");
+        }
+
+        // Presigned URLs carry their own authorization; never attach the workspace bearer token.
+        using var request = new HttpRequestMessage(HttpMethod.Get, link.Link);
+        using var response = SendWithRetry(request, authenticate: false, cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new DatabricksException(
+                $"Downloading result chunk {link.ChunkIndex} failed with status {(int)response.StatusCode}.",
+                (int)response.StatusCode);
+        }
+
+        using var memory = new MemoryStream();
+        using var stream = response.Content.ReadAsStream(cancellationToken);
+        stream.CopyTo(memory);
+        return memory.ToArray();
+    }
+
+    /// <inheritdoc />
     public async Task CancelStatementAsync(string statementId, CancellationToken cancellationToken)
     {
         try
@@ -215,16 +286,112 @@ public sealed class RestStatementTransport : IDatabricksTransport
     /// <inheritdoc />
     public ValueTask DisposeAsync()
     {
+        Dispose();
+        return ValueTask.CompletedTask;
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
         if (_ownsHttpClient)
         {
             _httpClient.Dispose();
         }
-
-        return ValueTask.CompletedTask;
     }
 
     private Uri StatementUri(string statementId)
         => new(_baseUri, $"/api/2.0/sql/statements/{Uri.EscapeDataString(statementId)}");
+
+    private StatementRequest BuildSubmitRequest(StatementRequest request, TimeSpan commandTimeout)
+    {
+        // Ask the server to wait synchronously for a bounded time before we fall back to polling.
+        var serverWait = commandTimeout > TimeSpan.Zero && commandTimeout < s_maxServerWait
+            ? (commandTimeout < s_minServerWait ? s_minServerWait : commandTimeout)
+            : TimeSpan.FromSeconds(30);
+        return new StatementRequest
+        {
+            Statement = request.Statement,
+            WarehouseId = request.WarehouseId,
+            Catalog = request.Catalog,
+            Schema = request.Schema,
+            Parameters = request.Parameters,
+            Format = request.Format,
+            Disposition = request.Disposition,
+            WaitTimeout = $"{(int)serverWait.TotalSeconds}s",
+            OnWaitTimeout = "CONTINUE",
+        };
+    }
+
+    /// <summary>
+    /// Returns true when the statement succeeded, false when it is still pending/running,
+    /// and throws for terminal failure states.
+    /// </summary>
+    private static bool CheckStatementState(string statementId, StatementResponse response)
+        => response.Status?.State switch
+        {
+            "SUCCEEDED" => true,
+            "PENDING" or "RUNNING" => false,
+            "FAILED" or "CANCELED" or "CLOSED" => throw CreateStatementException(statementId, response.Status!),
+            _ => throw new DatabricksException(
+                $"Statement '{statementId}' reported unknown state '{response.Status?.State}'.")
+            {
+                StatementId = statementId,
+            },
+        };
+
+    private T SendJson<T>(Func<HttpRequestMessage> requestFactory, CancellationToken cancellationToken)
+    {
+        using var request = requestFactory();
+        using var response = SendWithRetry(request, authenticate: true, cancellationToken);
+        using var bodyReader = new StreamReader(response.Content.ReadAsStream(cancellationToken));
+        var body = bodyReader.ReadToEnd();
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw CreateHttpException(response.StatusCode, body);
+        }
+
+        return JsonSerializer.Deserialize<T>(body, s_jsonOptions)
+            ?? throw new DatabricksException("Databricks API returned an empty response body.");
+    }
+
+    private HttpResponseMessage SendWithRetry(
+        HttpRequestMessage request, bool authenticate, CancellationToken cancellationToken)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            if (authenticate)
+            {
+                var token = _authenticator.GetToken(cancellationToken);
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            }
+
+            // Genuinely synchronous I/O: no sync-over-async blocking.
+            var response = _httpClient.Send(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+
+            if (response.StatusCode is not (HttpStatusCode.TooManyRequests or HttpStatusCode.ServiceUnavailable)
+                || attempt >= _maxRetries)
+            {
+                return response;
+            }
+
+            var delay = response.Headers.RetryAfter?.Delta
+                ?? _retryBaseDelay * Math.Pow(2, attempt) * (0.8 + Random.Shared.NextDouble() * 0.4);
+            _logger.LogDebug(
+                "Retrying request to {Uri} after {Delay} (attempt {Attempt}/{MaxRetries}, status {Status}).",
+                request.RequestUri, delay, attempt + 1, _maxRetries, (int)response.StatusCode);
+            response.Dispose();
+
+            cancellationToken.ThrowIfCancellationRequested();
+            Thread.Sleep(delay);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // HttpRequestMessage instances cannot be resent; clone for the retry.
+            var clone = CloneRequestAsync(request).GetAwaiter().GetResult();
+            request.Dispose();
+            request = clone;
+        }
+    }
 
     private async Task<T> SendJsonAsync<T>(
         Func<HttpRequestMessage> requestFactory, CancellationToken cancellationToken)

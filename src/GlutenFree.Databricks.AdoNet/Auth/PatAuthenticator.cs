@@ -17,4 +17,7 @@ public sealed class PatAuthenticator : IDatabricksAuthenticator
     /// <inheritdoc />
     public ValueTask<string> GetTokenAsync(CancellationToken cancellationToken = default)
         => ValueTask.FromResult(_token);
+
+    /// <inheritdoc />
+    public string GetToken(CancellationToken cancellationToken = default) => _token;
 }

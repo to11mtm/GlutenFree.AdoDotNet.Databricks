@@ -28,4 +28,21 @@ public interface IDatabricksTransport : IAsyncDisposable
 
     /// <summary>Requests cancellation of a running statement. Best-effort; does not throw on failure.</summary>
     Task CancelStatementAsync(string statementId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Synchronous counterpart of <see cref="ExecuteStatementAsync"/>. The default implementation
+    /// blocks on the async path; <see cref="RestStatementTransport"/> overrides it with genuinely
+    /// synchronous I/O.
+    /// </summary>
+    StatementResponse ExecuteStatement(
+        StatementRequest request, TimeSpan commandTimeout, CancellationToken cancellationToken)
+        => ExecuteStatementAsync(request, commandTimeout, cancellationToken).GetAwaiter().GetResult();
+
+    /// <summary>Synchronous counterpart of <see cref="GetResultChunkAsync"/>.</summary>
+    ResultData GetResultChunk(string statementId, int chunkIndex, CancellationToken cancellationToken)
+        => GetResultChunkAsync(statementId, chunkIndex, cancellationToken).GetAwaiter().GetResult();
+
+    /// <summary>Synchronous counterpart of <see cref="DownloadExternalLinkAsync"/>.</summary>
+    byte[] DownloadExternalLink(ExternalLink link, CancellationToken cancellationToken)
+        => DownloadExternalLinkAsync(link, cancellationToken).GetAwaiter().GetResult();
 }

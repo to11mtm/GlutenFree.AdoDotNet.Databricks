@@ -14,7 +14,9 @@ with Apache Arrow result decoding.
 
 - **Pure .NET 8** — no native dependencies; talks straight to the REST Statement Execution API
 - **Apache Arrow results** (`ARROW_STREAM` external links, LZ4-capable) with `JSON_ARRAY` fallback
-- **Async-first**: `OpenAsync`, `ExecuteReaderAsync`, `ReadAsync` throughout; sync works too
+- **Async-first**: `OpenAsync`, `ExecuteReaderAsync`, `ReadAsync` throughout; the sync API is
+  a genuinely synchronous pipeline (`HttpClient.Send`), not sync-over-async — see
+  [Async vs. sync](#async-vs-sync)
 - **Server-side parameter binding** (`:name` markers) — inherently injection-safe, no client-side
   string substitution
 - **PAT and OAuth M2M** (service principal) authentication, with cached, single-flighted token refresh
@@ -24,6 +26,23 @@ with Apache Arrow result decoding.
 - **Works with Dapper** out of the box
 - **linq2db provider**: LINQ queries, LATERAL joins, window functions, CTEs, MERGE upserts,
   batched bulk copy
+
+## Async vs. sync
+
+**Always prefer the async methods** (`OpenAsync`, `ExecuteReaderAsync`, `ExecuteNonQueryAsync`,
+`ExecuteScalarAsync`, `ReadAsync`) — statement execution involves HTTP round-trips and
+server-side polling, so async keeps threads free and scales far better under load.
+
+That said, the synchronous API is a **first-class citizen**, not a `.Result` trap: sync calls
+run a genuinely synchronous pipeline built on .NET's `HttpClient.Send`, with no sync-over-async
+blocking anywhere. This means:
+
+- No `SynchronizationContext` deadlocks (WinForms/WPF/legacy ASP.NET are safe)
+- No thread-pool starvation from blocked async state machines
+- Consumers that are inherently sync (Dapper's non-async API, `DataTable.Load`,
+  linq2db's sync `ToList()`) work efficiently
+
+Use sync when your caller is sync; use async everywhere else.
 
 ## Quickstart (ADO.NET)
 

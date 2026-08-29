@@ -75,7 +75,25 @@ public sealed class DatabricksDataReader : DbDataReader
     public override object this[string name] => GetValue(GetOrdinal(name));
 
     /// <inheritdoc />
-    public override bool Read() => ReadAsync(CancellationToken.None).GetAwaiter().GetResult();
+    /// <remarks>Genuinely synchronous; prefer <see cref="ReadAsync(CancellationToken)"/>.</remarks>
+    public override bool Read()
+    {
+        ThrowIfClosed();
+        while (true)
+        {
+            var blockCount = _arrowBatch?.Length ?? _jsonRows?.Count ?? -1;
+            if (blockCount >= 0 && _rowInBlock + 1 < blockCount)
+            {
+                _rowInBlock++;
+                return true;
+            }
+
+            if (!AdvanceBlock())
+            {
+                return false;
+            }
+        }
+    }
 
     /// <inheritdoc />
     public override async Task<bool> ReadAsync(CancellationToken cancellationToken)
@@ -367,21 +385,37 @@ public sealed class DatabricksDataReader : DbDataReader
     /// </summary>
     internal async Task<int> GetAffectedRowCountAsync(CancellationToken cancellationToken)
     {
-        var ordinal = -1;
-        for (var i = 0; i < _columns.Length; i++)
-        {
-            if (string.Equals(_columns[i].Name, "num_affected_rows", StringComparison.OrdinalIgnoreCase))
-            {
-                ordinal = i;
-                break;
-            }
-        }
-
+        var ordinal = FindAffectedRowsOrdinal();
         if (ordinal >= 0
             && await ReadAsync(cancellationToken).ConfigureAwait(false)
             && !IsDBNull(ordinal))
         {
             return (int)GetInt64(ordinal);
+        }
+
+        return -1;
+    }
+
+    /// <summary>Synchronous counterpart of <see cref="GetAffectedRowCountAsync"/>.</summary>
+    internal int GetAffectedRowCount()
+    {
+        var ordinal = FindAffectedRowsOrdinal();
+        if (ordinal >= 0 && Read() && !IsDBNull(ordinal))
+        {
+            return (int)GetInt64(ordinal);
+        }
+
+        return -1;
+    }
+
+    private int FindAffectedRowsOrdinal()
+    {
+        for (var i = 0; i < _columns.Length; i++)
+        {
+            if (string.Equals(_columns[i].Name, "num_affected_rows", StringComparison.OrdinalIgnoreCase))
+            {
+                return i;
+            }
         }
 
         return -1;
@@ -496,6 +530,114 @@ public sealed class DatabricksDataReader : DbDataReader
         _arrowReader = reader;
         SetArrowBatch(batch);
         return true;
+    }
+
+    private bool StartArrowStream(byte[] bytes)
+    {
+        var reader = new ArrowStreamReader(new MemoryStream(bytes), new CompressionCodecFactory());
+        var batch = reader.ReadNextRecordBatch();
+        if (batch is null)
+        {
+            reader.Dispose();
+            return false;
+        }
+
+        _arrowReader = reader;
+        SetArrowBatch(batch);
+        return true;
+    }
+
+    /// <summary>Synchronous mirror of <see cref="AdvanceBlockAsync"/> using the sync transport path.</summary>
+    private bool AdvanceBlock()
+    {
+        // 1. More record batches within the current Arrow chunk stream?
+        if (_arrowReader is not null)
+        {
+            var next = _arrowReader.ReadNextRecordBatch();
+            if (next is not null)
+            {
+                SetArrowBatch(next);
+                return true;
+            }
+
+            _arrowReader.Dispose();
+            _arrowReader = null;
+        }
+
+        ClearBlock();
+
+        while (true)
+        {
+            // 2. Inline payload (initial response or a fetched chunk).
+            if (_pendingInline is not null)
+            {
+                var inline = _pendingInline;
+                _pendingInline = null;
+                _highestChunkSeen = Math.Max(_highestChunkSeen, inline.ChunkIndex);
+
+                if (inline.ExternalLinks is { Count: > 0 } links)
+                {
+                    foreach (var link in links)
+                    {
+                        _pendingLinks.Enqueue(link);
+                    }
+
+                    continue;
+                }
+
+                if (inline.Attachment is { Length: > 0 } attachment)
+                {
+                    return StartArrowStream(Convert.FromBase64String(attachment));
+                }
+
+                if (inline.DataArray is { Count: > 0 } rows)
+                {
+                    _jsonRows = rows;
+                    _rowInBlock = -1;
+                    return true;
+                }
+
+                continue; // Empty chunk; look for the next one.
+            }
+
+            // 3. Pending external link downloads.
+            if (_pendingLinks.Count > 0)
+            {
+                var link = _pendingLinks.Dequeue();
+                _highestChunkSeen = Math.Max(_highestChunkSeen, link.ChunkIndex);
+                var bytes = _transport.DownloadExternalLink(link, CancellationToken.None);
+
+                if (IsArrowStream(bytes))
+                {
+                    if (StartArrowStream(bytes))
+                    {
+                        return true;
+                    }
+
+                    continue;
+                }
+
+                var rows = JsonSerializer.Deserialize<List<List<string?>>>(bytes);
+                if (rows is { Count: > 0 })
+                {
+                    _jsonRows = rows;
+                    _rowInBlock = -1;
+                    return true;
+                }
+
+                continue;
+            }
+
+            // 4. More chunks to request from the statement result?
+            var nextChunk = _highestChunkSeen + 1;
+            if (nextChunk < _totalChunkCount && _statementId.Length > 0)
+            {
+                _pendingInline = _transport.GetResultChunk(_statementId, nextChunk, CancellationToken.None);
+                continue;
+            }
+
+            return false;
+        }
     }
 
     private void SetArrowBatch(RecordBatch batch)

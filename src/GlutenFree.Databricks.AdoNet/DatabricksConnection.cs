@@ -83,7 +83,52 @@ public sealed class DatabricksConnection : DbConnection
         => _transport ?? throw new InvalidOperationException("The connection is not open.");
 
     /// <inheritdoc />
-    public override void Open() => OpenAsync(CancellationToken.None).GetAwaiter().GetResult();
+    /// <remarks>
+    /// Genuinely synchronous: credential acquisition uses synchronous HTTP. Prefer
+    /// <see cref="OpenAsync(CancellationToken)"/> in async code paths.
+    /// </remarks>
+    public override void Open()
+    {
+        if (_state == ConnectionState.Open)
+        {
+            throw new InvalidOperationException("The connection is already open.");
+        }
+
+        _builder.Validate();
+        _catalog = _builder.Catalog;
+        _schema = _builder.Schema;
+
+        _state = ConnectionState.Connecting;
+        try
+        {
+            if (TransportFactory is not null)
+            {
+                _transport = TransportFactory(this);
+            }
+            else
+            {
+                _authenticator = CreateAuthenticator();
+                _transport = CreateRestTransport();
+
+                // Eagerly acquire credentials so misconfiguration surfaces at Open time.
+                using var connectCts = new CancellationTokenSource();
+                if (_builder.ConnectTimeout > 0)
+                {
+                    connectCts.CancelAfter(TimeSpan.FromSeconds(_builder.ConnectTimeout));
+                }
+
+                _authenticator.GetToken(connectCts.Token);
+            }
+
+            _state = ConnectionState.Open;
+        }
+        catch
+        {
+            DisposeTransportAsync().AsTask().GetAwaiter().GetResult();
+            _state = ConnectionState.Closed;
+            throw;
+        }
+    }
 
     /// <inheritdoc />
     public override async Task OpenAsync(CancellationToken cancellationToken)
@@ -107,12 +152,7 @@ public sealed class DatabricksConnection : DbConnection
             else
             {
                 _authenticator = CreateAuthenticator();
-                _transport = new RestStatementTransport(
-                    _builder.Host,
-                    _authenticator,
-                    maxRetries: _builder.MaxRetries,
-                    retryBaseDelay: TimeSpan.FromMilliseconds(_builder.RetryBaseDelay),
-                    loggerFactory: LoggerFactory);
+                _transport = CreateRestTransport();
 
                 // Eagerly acquire credentials so misconfiguration surfaces at Open time.
                 using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -231,6 +271,14 @@ public sealed class DatabricksConnection : DbConnection
         DatabricksAuthType.OAuthM2M => new OAuthM2MAuthenticator(_builder.Host, _builder.ClientId, _builder.ClientSecret),
         _ => throw new NotSupportedException($"AuthType '{_builder.AuthType}' is not supported."),
     };
+
+    private RestStatementTransport CreateRestTransport()
+        => new(
+            _builder.Host,
+            _authenticator!,
+            maxRetries: _builder.MaxRetries,
+            retryBaseDelay: TimeSpan.FromMilliseconds(_builder.RetryBaseDelay),
+            loggerFactory: LoggerFactory);
 
     private async ValueTask DisposeTransportAsync()
     {

@@ -116,8 +116,12 @@ public sealed class DatabricksCommand : DbCommand
     }
 
     /// <inheritdoc />
+    /// <remarks>Genuinely synchronous; prefer <see cref="ExecuteNonQueryAsync(CancellationToken)"/>.</remarks>
     public override int ExecuteNonQuery()
-        => ExecuteNonQueryAsync(CancellationToken.None).GetAwaiter().GetResult();
+    {
+        using var reader = ExecuteReaderInternal();
+        return reader.GetAffectedRowCount();
+    }
 
     /// <inheritdoc />
     public override async Task<int> ExecuteNonQueryAsync(CancellationToken cancellationToken)
@@ -127,8 +131,12 @@ public sealed class DatabricksCommand : DbCommand
     }
 
     /// <inheritdoc />
+    /// <remarks>Genuinely synchronous; prefer <see cref="ExecuteScalarAsync(CancellationToken)"/>.</remarks>
     public override object? ExecuteScalar()
-        => ExecuteScalarAsync(CancellationToken.None).GetAwaiter().GetResult();
+    {
+        using var reader = ExecuteReaderInternal();
+        return reader.Read() && reader.FieldCount > 0 ? reader.GetValue(0) : null;
+    }
 
     /// <inheritdoc />
     public override async Task<object?> ExecuteScalarAsync(CancellationToken cancellationToken)
@@ -141,7 +149,7 @@ public sealed class DatabricksCommand : DbCommand
 
     /// <inheritdoc />
     protected override DbDataReader ExecuteDbDataReader(CommandBehavior behavior)
-        => ExecuteReaderInternalAsync(CancellationToken.None).GetAwaiter().GetResult();
+        => ExecuteReaderInternal();
 
     /// <inheritdoc />
     protected override async Task<DbDataReader> ExecuteDbDataReaderAsync(
@@ -149,14 +157,55 @@ public sealed class DatabricksCommand : DbCommand
         => await ExecuteReaderInternalAsync(cancellationToken).ConfigureAwait(false);
 
     /// <summary>Executes the command and returns a <see cref="DatabricksDataReader"/>.</summary>
-    public new DatabricksDataReader ExecuteReader()
-        => ExecuteReaderInternalAsync(CancellationToken.None).GetAwaiter().GetResult();
+    /// <remarks>Genuinely synchronous; prefer <see cref="ExecuteReaderAsync(CancellationToken)"/>.</remarks>
+    public new DatabricksDataReader ExecuteReader() => ExecuteReaderInternal();
 
     /// <summary>Executes the command and returns a <see cref="DatabricksDataReader"/>.</summary>
     public new async Task<DatabricksDataReader> ExecuteReaderAsync(CancellationToken cancellationToken = default)
         => await ExecuteReaderInternalAsync(cancellationToken).ConfigureAwait(false);
 
     private async Task<DatabricksDataReader> ExecuteReaderInternalAsync(CancellationToken cancellationToken)
+    {
+        var (connection, request) = PrepareExecution();
+        var timeout = TimeSpan.FromSeconds(CommandTimeout);
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        StatementResponse response;
+        try
+        {
+            _userCancellation = cancellation;
+            response = await connection.Transport
+                .ExecuteStatementAsync(request, timeout, cancellation.Token)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            _userCancellation = null;
+        }
+
+        return new DatabricksDataReader(connection.Transport, response);
+    }
+
+    private DatabricksDataReader ExecuteReaderInternal()
+    {
+        var (connection, request) = PrepareExecution();
+        var timeout = TimeSpan.FromSeconds(CommandTimeout);
+        using var cancellation = new CancellationTokenSource();
+        StatementResponse response;
+        try
+        {
+            _userCancellation = cancellation;
+            // Genuinely synchronous transport path (HttpClient.Send); no sync-over-async.
+            response = connection.Transport.ExecuteStatement(request, timeout, cancellation.Token);
+        }
+        finally
+        {
+            _userCancellation = null;
+        }
+
+        return new DatabricksDataReader(connection.Transport, response);
+    }
+
+    private (DatabricksConnection Connection, StatementRequest Request) PrepareExecution()
     {
         var connection = _connection
             ?? throw new InvalidOperationException("The command has no associated connection.");
@@ -177,23 +226,7 @@ public sealed class DatabricksCommand : DbCommand
             Format = ResolveFormat(settings),
             Disposition = ResolveDisposition(settings),
         };
-
-        var timeout = TimeSpan.FromSeconds(CommandTimeout);
-        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        StatementResponse response;
-        try
-        {
-            _userCancellation = cancellation;
-            response = await connection.Transport
-                .ExecuteStatementAsync(request, timeout, cancellation.Token)
-                .ConfigureAwait(false);
-        }
-        finally
-        {
-            _userCancellation = null;
-        }
-
-        return new DatabricksDataReader(connection.Transport, response);
+        return (connection, request);
     }
 
     private static string ResolveFormat(DatabricksConnectionStringBuilder settings)

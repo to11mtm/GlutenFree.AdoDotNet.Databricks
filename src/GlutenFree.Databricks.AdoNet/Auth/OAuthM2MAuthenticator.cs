@@ -79,9 +79,51 @@ public sealed class OAuthM2MAuthenticator : IDatabricksAuthenticator, IDisposabl
         }
     }
 
+    /// <inheritdoc />
+    public string GetToken(CancellationToken cancellationToken = default)
+    {
+        var cached = Volatile.Read(ref _cachedToken);
+        if (cached is not null && _timeProvider.GetUtcNow() < _expiresAt)
+        {
+            return cached;
+        }
+
+        _refreshLock.Wait(cancellationToken);
+        try
+        {
+            cached = _cachedToken;
+            if (cached is not null && _timeProvider.GetUtcNow() < _expiresAt)
+            {
+                return cached;
+            }
+
+            using var request = CreateTokenRequest();
+            // Genuinely synchronous I/O: no sync-over-async blocking.
+            using var response = _httpClient.Send(request, cancellationToken);
+            using var bodyReader = new StreamReader(response.Content.ReadAsStream(cancellationToken));
+            var (token, expiresIn) = ParseTokenResponse(response, bodyReader.ReadToEnd());
+
+            _expiresAt = _timeProvider.GetUtcNow() + expiresIn - s_expiryMargin;
+            Volatile.Write(ref _cachedToken, token);
+            return token;
+        }
+        finally
+        {
+            _refreshLock.Release();
+        }
+    }
+
     private async Task<(string Token, TimeSpan ExpiresIn)> RequestTokenAsync(CancellationToken cancellationToken)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Post, _tokenEndpoint)
+        using var request = CreateTokenRequest();
+        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        return ParseTokenResponse(response, body);
+    }
+
+    private HttpRequestMessage CreateTokenRequest()
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, _tokenEndpoint)
         {
             Content = new FormUrlEncodedContent(new Dictionary<string, string>
             {
@@ -90,10 +132,11 @@ public sealed class OAuthM2MAuthenticator : IDatabricksAuthenticator, IDisposabl
             }),
         };
         request.Headers.Authorization = new AuthenticationHeaderValue("Basic", _basicCredentials);
+        return request;
+    }
 
-        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-
+    private (string Token, TimeSpan ExpiresIn) ParseTokenResponse(HttpResponseMessage response, string body)
+    {
         if (!response.IsSuccessStatusCode)
         {
             // Do not include the response body verbatim in case it echoes credentials;

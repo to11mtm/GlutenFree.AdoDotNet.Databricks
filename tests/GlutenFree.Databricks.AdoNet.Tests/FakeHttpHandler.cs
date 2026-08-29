@@ -29,6 +29,24 @@ public sealed class FakeHttpHandler : HttpMessageHandler
         string? body = request.Content is null
             ? null
             : await request.Content.ReadAsStringAsync(cancellationToken);
+        return Respond(request, body);
+    }
+
+    protected override HttpResponseMessage Send(
+        HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        string? body = null;
+        if (request.Content is not null)
+        {
+            using var reader = new StreamReader(request.Content.ReadAsStream(cancellationToken));
+            body = reader.ReadToEnd();
+        }
+
+        return Respond(request, body);
+    }
+
+    private HttpResponseMessage Respond(HttpRequestMessage request, string? body)
+    {
         Requests.Add((request, body));
 
         if (_responders.Count == 0)
