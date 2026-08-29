@@ -22,11 +22,20 @@ public class DatabricksProviderFactoryTests
     [Fact]
     public void Factory_can_be_registered_and_resolved()
     {
-        DbProviderFactories.RegisterFactory("GlutenFree.Databricks.AdoNet.TestReg", DatabricksProviderFactory.Instance);
+        // DbProviderFactories registrations are process-global; use a unique name so
+        // reruns / multiple in-proc test assemblies never collide.
+        var invariantName = $"GlutenFree.Databricks.AdoNet.TestReg.{Guid.NewGuid():N}";
+        DbProviderFactories.RegisterFactory(invariantName, DatabricksProviderFactory.Instance);
+        try
+        {
+            var resolved = DbProviderFactories.GetFactory(invariantName);
 
-        var resolved = DbProviderFactories.GetFactory("GlutenFree.Databricks.AdoNet.TestReg");
-
-        Assert.Same(DatabricksProviderFactory.Instance, resolved);
+            Assert.Same(DatabricksProviderFactory.Instance, resolved);
+        }
+        finally
+        {
+            DbProviderFactories.UnregisterFactory(invariantName);
+        }
     }
 }
 

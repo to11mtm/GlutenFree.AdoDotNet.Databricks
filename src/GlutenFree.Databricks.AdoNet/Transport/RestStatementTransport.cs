@@ -219,7 +219,7 @@ public sealed class RestStatementTransport : IDatabricksTransport, IDisposable
             catch (OperationCanceledException) when (
                 timeoutCts?.IsCancellationRequested == true || cancellationToken.IsCancellationRequested)
             {
-                CancelStatementAsync(statementId, CancellationToken.None).GetAwaiter().GetResult();
+                CancelStatement(statementId);
                 cancellationToken.ThrowIfCancellationRequested();
                 throw new DatabricksException(
                     $"Statement '{statementId}' timed out after {commandTimeout} and was canceled.")
@@ -276,6 +276,26 @@ public sealed class RestStatementTransport : IDatabricksTransport, IDisposable
                 new Uri(_baseUri, $"/api/2.0/sql/statements/{Uri.EscapeDataString(statementId)}/cancel"));
             using var response = await SendWithRetryAsync(request, authenticate: true, cancellationToken)
                 .ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Best-effort cancel of statement {StatementId} failed.", statementId);
+        }
+    }
+
+    /// <summary>
+    /// Synchronous counterpart of <see cref="CancelStatementAsync"/> — genuinely synchronous
+    /// (<see cref="SendWithRetry"/>) so the sync execution path never blocks on async work.
+    /// Best-effort; does not throw on failure.
+    /// </summary>
+    private void CancelStatement(string statementId)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(
+                HttpMethod.Post,
+                new Uri(_baseUri, $"/api/2.0/sql/statements/{Uri.EscapeDataString(statementId)}/cancel"));
+            using var response = SendWithRetry(request, authenticate: true, CancellationToken.None);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
