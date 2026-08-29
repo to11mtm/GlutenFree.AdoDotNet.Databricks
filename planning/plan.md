@@ -23,9 +23,19 @@
     LockedMappingSchema literals, SchemaProvider over information_schema, MemberTranslator defaults;
     DatabricksTools/UseDatabricks entry points; linq2db pinned [6.4.0,7.0.0); tests split into
     tests/Databricks.AdoNet.Linq2Db.Tests (8 smoke) + tests/Databricks.AdoNet.Linq2Db.IntegrationTests (5 live))
-12. CI (GitHub Actions), NuGet packaging (SourceLink, license choice)
-13. Docs (README quickstart, type-mapping table, limitations), samples
+12. CI (GitHub Actions), NuGet packaging (SourceLink, symbols, PackageReadmeFile)
+13. ✅ Docs: root README.md (quickstart ADO.NET/Dapper/linq2db, connection-string reference,
+    type-mapping table, limitations); LICENSE = Apache-2.0 (canonical text at repo root,
+    PackageLicenseExpression in Directory.Build.props)
 14. Stretch: DatabricksDecimal BigDecimal-style struct
+
+## Notes
+- Projects renamed to GlutenFree.* prefix (user, 2026-08-29).
+- planning/token-info.md contains a live PAT: gitignored, verified never committed
+  (searched all blobs for token value + id — clean).
+- linq2db live-testing dialect fixes: SupportsColumnAliasesInSource=false and
+  IsValuesSyntaxSupported=false (Databricks MERGE constraints); APPLY→LATERAL via BuildJoinType;
+  DatabricksBulkCopy routes MultipleRows/ProviderSpecific/Default to MultipleRowsCopy1.
 
 ## Live-test findings (corrected assumptions)
 - ARROW_STREAM delivers ARRAY/MAP/STRUCT as real Arrow nested arrays (not JSON strings);

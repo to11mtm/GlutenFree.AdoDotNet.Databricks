@@ -7,5 +7,7 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <Deterministic>true</Deterministic>
     <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <Authors>to11mtm and contributors</Authors>
   </PropertyGroup>
 </Project>

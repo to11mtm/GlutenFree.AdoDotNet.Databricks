@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <PackageId>GlutenFree.Databricks.AdoNet.Linq2Db</PackageId>
-    <Description>linq2db data provider for Databricks SQL warehouses, built on Databricks.AdoNet.</Description>
+    <Description>linq2db data provider for Databricks SQL warehouses, built on GlutenFree.Databricks.AdoNet.</Description>
     <PackageTags>databricks;linq2db;linq;sql;data;provider</PackageTags>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
