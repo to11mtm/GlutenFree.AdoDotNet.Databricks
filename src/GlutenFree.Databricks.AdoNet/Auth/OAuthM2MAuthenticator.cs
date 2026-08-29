@@ -21,7 +21,10 @@ public sealed class OAuthM2MAuthenticator : IDatabricksAuthenticator, IDisposabl
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
 
     private string? _cachedToken;
-    private DateTimeOffset _expiresAt = DateTimeOffset.MinValue;
+
+    // UTC ticks; read/written atomically (long + Volatile) so the lock-free fast path
+    // never sees a torn DateTimeOffset value.
+    private long _expiresAtTicks = long.MinValue;
 
     /// <summary>
     /// Creates an authenticator for the given workspace host and service principal credentials.
@@ -53,7 +56,7 @@ public sealed class OAuthM2MAuthenticator : IDatabricksAuthenticator, IDisposabl
     public async ValueTask<string> GetTokenAsync(CancellationToken cancellationToken = default)
     {
         var cached = Volatile.Read(ref _cachedToken);
-        if (cached is not null && _timeProvider.GetUtcNow() < _expiresAt)
+        if (cached is not null && IsTokenValid)
         {
             return cached;
         }
@@ -63,13 +66,13 @@ public sealed class OAuthM2MAuthenticator : IDatabricksAuthenticator, IDisposabl
         {
             // Another caller may have refreshed while we waited.
             cached = _cachedToken;
-            if (cached is not null && _timeProvider.GetUtcNow() < _expiresAt)
+            if (cached is not null && IsTokenValid)
             {
                 return cached;
             }
 
             var (token, expiresIn) = await RequestTokenAsync(cancellationToken).ConfigureAwait(false);
-            _expiresAt = _timeProvider.GetUtcNow() + expiresIn - s_expiryMargin;
+            SetExpiry(expiresIn);
             Volatile.Write(ref _cachedToken, token);
             return token;
         }
@@ -83,7 +86,7 @@ public sealed class OAuthM2MAuthenticator : IDatabricksAuthenticator, IDisposabl
     public string GetToken(CancellationToken cancellationToken = default)
     {
         var cached = Volatile.Read(ref _cachedToken);
-        if (cached is not null && _timeProvider.GetUtcNow() < _expiresAt)
+        if (cached is not null && IsTokenValid)
         {
             return cached;
         }
@@ -92,7 +95,7 @@ public sealed class OAuthM2MAuthenticator : IDatabricksAuthenticator, IDisposabl
         try
         {
             cached = _cachedToken;
-            if (cached is not null && _timeProvider.GetUtcNow() < _expiresAt)
+            if (cached is not null && IsTokenValid)
             {
                 return cached;
             }
@@ -103,7 +106,7 @@ public sealed class OAuthM2MAuthenticator : IDatabricksAuthenticator, IDisposabl
             using var bodyReader = new StreamReader(response.Content.ReadAsStream(cancellationToken));
             var (token, expiresIn) = ParseTokenResponse(response, bodyReader.ReadToEnd());
 
-            _expiresAt = _timeProvider.GetUtcNow() + expiresIn - s_expiryMargin;
+            SetExpiry(expiresIn);
             Volatile.Write(ref _cachedToken, token);
             return token;
         }
@@ -112,6 +115,12 @@ public sealed class OAuthM2MAuthenticator : IDatabricksAuthenticator, IDisposabl
             _refreshLock.Release();
         }
     }
+
+    private bool IsTokenValid
+        => _timeProvider.GetUtcNow().UtcTicks < Volatile.Read(ref _expiresAtTicks);
+
+    private void SetExpiry(TimeSpan expiresIn)
+        => Volatile.Write(ref _expiresAtTicks, (_timeProvider.GetUtcNow() + expiresIn - s_expiryMargin).UtcTicks);
 
     private async Task<(string Token, TimeSpan ExpiresIn)> RequestTokenAsync(CancellationToken cancellationToken)
     {

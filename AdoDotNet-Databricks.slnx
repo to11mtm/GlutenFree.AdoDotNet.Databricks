@@ -4,6 +4,7 @@
     <File Path="planning/integration-test-setup.md" />
     <File Path="planning/linq2db-dataprovider.md" />
     <File Path="planning/plan.md" />
+    <File Path="planning/post-v0.1-backlog.md" />
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/GlutenFree.Databricks.AdoNet.Linq2Db/GlutenFree.Databricks.AdoNet.Linq2Db.csproj" />

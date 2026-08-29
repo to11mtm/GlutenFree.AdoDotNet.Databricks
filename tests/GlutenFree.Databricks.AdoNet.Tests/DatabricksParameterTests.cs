@@ -202,4 +202,19 @@ public class DatabricksTypeMapTests
         var column = new ColumnInfo { Name = "a", TypeName = "ARRAY", TypeText = "ARRAY<INT>" };
         Assert.Equal("[1,2,3]", DatabricksTypeMap.ConvertJsonValue("[1,2,3]", column));
     }
+
+    [Fact]
+    public void Arrow_nested_non_finite_doubles_serialize_as_strings()
+    {
+        var listBuilder = new Apache.Arrow.ListArray.Builder(Apache.Arrow.Types.DoubleType.Default);
+        var valueBuilder = (Apache.Arrow.DoubleArray.Builder)listBuilder.ValueBuilder;
+        listBuilder.Append();
+        valueBuilder.Append(1.5).Append(double.NaN).Append(double.PositiveInfinity).Append(double.NegativeInfinity);
+        var list = listBuilder.Build();
+
+        var column = new ColumnInfo { Name = "a", TypeName = "ARRAY", TypeText = "ARRAY<DOUBLE>" };
+        var json = (string)DatabricksTypeMap.ConvertArrowValue(list, 0, column);
+
+        Assert.Equal("""[1.5,"NaN","Infinity","-Infinity"]""", json);
+    }
 }

@@ -26,8 +26,12 @@ jobs:
 
       - name: Verify secrets are configured
         run: |
-          if [ -z "$DATABRICKS_HOST" ]; then
-            echo "::error::DATABRICKS_* secrets are not configured on this repository."
+          missing=""
+          [ -z "$DATABRICKS_HOST" ] && missing="$missing DATABRICKS_HOST"
+          [ -z "$DATABRICKS_TOKEN" ] && missing="$missing DATABRICKS_TOKEN"
+          [ -z "$DATABRICKS_WAREHOUSE_ID" ] && missing="$missing DATABRICKS_WAREHOUSE_ID"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secrets:$missing"
             exit 1
           fi
 

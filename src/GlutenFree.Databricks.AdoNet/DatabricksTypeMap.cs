@@ -155,6 +155,24 @@ internal static class DatabricksTypeMap
         return System.Text.Encoding.UTF8.GetString(stream.ToArray());
     }
 
+    /// <summary>
+    /// Writes a floating-point value, rendering non-finite values as strings —
+    /// <see cref="System.Text.Json.Utf8JsonWriter.WriteNumberValue(double)"/> throws for
+    /// NaN/Infinity, and Databricks' own JSON output uses the string forms.
+    /// </summary>
+    private static void WriteFloatingPoint(System.Text.Json.Utf8JsonWriter writer, double value)
+    {
+        if (double.IsFinite(value))
+        {
+            writer.WriteNumberValue(value);
+        }
+        else
+        {
+            writer.WriteStringValue(
+                double.IsNaN(value) ? "NaN" : double.IsPositiveInfinity(value) ? "Infinity" : "-Infinity");
+        }
+    }
+
     private static void WriteArrowJsonValue(System.Text.Json.Utf8JsonWriter writer, IArrowArray array, int index)
     {
         if (array.IsNull(index))
@@ -181,10 +199,10 @@ internal static class DatabricksTypeMap
                 writer.WriteNumberValue(a.GetValue(index)!.Value);
                 break;
             case FloatArray a:
-                writer.WriteNumberValue(a.GetValue(index)!.Value);
+                WriteFloatingPoint(writer, a.GetValue(index)!.Value);
                 break;
             case DoubleArray a:
-                writer.WriteNumberValue(a.GetValue(index)!.Value);
+                WriteFloatingPoint(writer, a.GetValue(index)!.Value);
                 break;
             case Decimal128Array a:
                 writer.WriteRawValue(a.GetString(index), skipInputValidation: false);
