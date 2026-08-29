@@ -131,6 +131,8 @@ public sealed class DatabricksParameter : DbParameter
 
     private static (string, string) FormatDecimal(decimal value)
     {
+        // decimal.ToString preserves trailing zeros (123.450m -> "123.450") and
+        // decimal.Scale (available since .NET 7) matches that rendered scale.
         var text = value.ToString(CultureInfo.InvariantCulture);
         var scale = value.Scale;
         var precision = text.Count(char.IsAsciiDigit);

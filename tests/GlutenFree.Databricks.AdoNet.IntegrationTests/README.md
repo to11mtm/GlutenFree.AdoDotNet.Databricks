@@ -1,4 +1,4 @@
-# Databricks.AdoNet.IntegrationTests
+# GlutenFree.Databricks.AdoNet.IntegrationTests
 
 End-to-end tests that run against a **live Databricks SQL warehouse**.
 
@@ -11,7 +11,7 @@ step-by-step instructions (workspace URL, warehouse id, personal access token, a
 ## Running
 
 ```powershell
-dotnet test tests/Databricks.AdoNet.IntegrationTests
+dotnet test tests/GlutenFree.Databricks.AdoNet.IntegrationTests
 ```
 
 - If the environment variables are **not** set, every test is **skipped** — safe for CI and

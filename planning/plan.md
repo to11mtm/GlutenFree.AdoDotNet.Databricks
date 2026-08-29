@@ -16,13 +16,13 @@
 7. ✅ Arrow result decoding + type mapping (SqlDecimal for p>28, LZ4 via Apache.Arrow.Compression)
 8. ✅ DbProviderFactory + GetSchema (Catalogs/Schemas/Tables/Views/Columns via system.information_schema, parameterized restrictions)
 9. ✅ Unit tests incl. Dapper smoke tests (113 passing)
-10. ✅ Integration tests: separate tests/Databricks.AdoNet.IntegrationTests project, env-var
+10. ✅ Integration tests: separate tests/GlutenFree.Databricks.AdoNet.IntegrationTests project, env-var
     gated (9 passing against live Free Edition warehouse; setup: planning/integration-test-setup.md)
 11. ✅ linq2db provider: src/Databricks.AdoNet.Linq2Db (DataProvider, SqlBuilder w/ backticks +
     :param markers + LIMIT/OFFSET + Databricks DDL type names, SqlOptimizer w/ alt DELETE/UPDATE,
     LockedMappingSchema literals, SchemaProvider over information_schema, MemberTranslator defaults;
     DatabricksTools/UseDatabricks entry points; linq2db pinned [6.4.0,7.0.0); tests split into
-    tests/Databricks.AdoNet.Linq2Db.Tests (8 smoke) + tests/Databricks.AdoNet.Linq2Db.IntegrationTests (5 live))
+    tests/GlutenFree.Databricks.AdoNet.Linq2Db.Tests (8 smoke) + tests/GlutenFree.Databricks.AdoNet.Linq2Db.IntegrationTests (5 live))
 12. ✅ CI + packaging: .github/workflows/{ci,release,integration}.yml; src/Directory.Build.props
     adds SourceLink (GitHub), snupkg symbols, packed README, VersionPrefix 0.1.0 (release version
     derived from v* tag); RepositoryUrl inferred from git remote (org-move safe); secrets needed:

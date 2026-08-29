@@ -1,4 +1,4 @@
-# Databricks.AdoNet.Linq2Db.IntegrationTests
+# GlutenFree.Databricks.AdoNet.Linq2Db.IntegrationTests
 
 End-to-end linq2db tests against a **live Databricks SQL warehouse**.
 
@@ -8,5 +8,5 @@ Tests are skipped automatically unless `DATABRICKS_HOST`, `DATABRICKS_TOKEN`, an
 `DATABRICKS_WAREHOUSE_ID` are set.
 
 ```powershell
-dotnet test tests/Databricks.AdoNet.Linq2Db.IntegrationTests
+dotnet test tests/GlutenFree.Databricks.AdoNet.Linq2Db.IntegrationTests
 ```
