@@ -196,6 +196,46 @@ public class DatabricksDataReaderTests
         Assert.Throws<InvalidOperationException>(() => reader.GetValue(0));
     }
 
+    [Fact]
+    public async Task Reads_arrow_stream_from_inline_attachment()
+    {
+        var arrowBytes = BuildArrowChunk();
+        var columns = new[]
+        {
+            new ColumnInfo { Name = "id", TypeName = "INT", Position = 0 },
+            new ColumnInfo { Name = "name", TypeName = "STRING", Position = 1 },
+            new ColumnInfo { Name = "amount", TypeName = "DECIMAL", TypePrecision = 38, TypeScale = 2, Position = 2 },
+            new ColumnInfo { Name = "when", TypeName = "TIMESTAMP", Position = 3 },
+            new ColumnInfo { Name = "day", TypeName = "DATE", Position = 4 },
+        };
+        var reader = new DatabricksDataReader(new FakeTransport(), new StatementResponse
+        {
+            StatementId = "stmt-1",
+            Status = new StatementStatus { State = "SUCCEEDED" },
+            Manifest = new ResultManifest
+            {
+                Format = "ARROW_STREAM",
+                TotalChunkCount = 1,
+                TotalRowCount = 2,
+                Schema = new ResultSchema { ColumnCount = columns.Length, Columns = columns },
+            },
+            Result = new ResultData
+            {
+                ChunkIndex = 0,
+                RowCount = 2,
+                Attachment = Convert.ToBase64String(arrowBytes),
+            },
+        });
+
+        var ids = new List<int>();
+        while (await reader.ReadAsync())
+        {
+            ids.Add(reader.GetInt32(0));
+        }
+
+        Assert.Equal([1, 2], ids);
+    }
+
     private static byte[] BuildArrowChunk()
     {
         var schema = new Schema.Builder()

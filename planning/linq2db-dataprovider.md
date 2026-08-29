@@ -26,3 +26,4 @@ https://github.com/linq2db/linq2db/blob/master/Source/LinqToDB/Internal/DataProv
 
 https://github.com/linq2db/linq2db/blob/master/Source/LinqToDB/Internal/DataProvider/SQLite/SQLiteProviderDetector.cs
 
+https://github.com/linq2db/linq2db/tree/master/Source/LinqToDB/DataProvider/SQLite

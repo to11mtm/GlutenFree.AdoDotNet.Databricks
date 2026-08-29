@@ -1,8 +1,10 @@
 <Solution>
   <Folder Name="/reqs/">
     <File Path="planning/Adodotnet-databricks-provider.md" />
+    <File Path="planning/integration-test-setup.md" />
     <File Path="planning/linq2db-dataprovider.md" />
     <File Path="planning/plan.md" />
+    <File Path="planning/token-info.md" />
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/Databricks.AdoNet/Databricks.AdoNet.csproj" />

@@ -113,5 +113,8 @@ Reviewed arrow-dotnet feature matrix vs Databricks output; coverage is sufficien
 - Thrift/HiveServer2 transport, all-purpose cluster support
 - Multi-statement transactions
 - OAuth U2M (interactive browser) flow
-- EF Core provider (separate project later)
+- EF Core provider (separate project later). A **linq2db provider** (`Databricks.AdoNet.Linq2Db`)
+  **is** in scope for the initial release — see `planning/linq2db-dataprovider.md` for reference
+  material; it is far simpler than EF Core (DataProvider + SqlBuilder + SqlOptimizer +
+  MappingSchema + SchemaProvider, modeled on linq2db's SQLite provider).
 - Bulk copy / staging ingest APIs
