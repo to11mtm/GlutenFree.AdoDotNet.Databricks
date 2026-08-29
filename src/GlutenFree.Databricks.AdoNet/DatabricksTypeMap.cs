@@ -63,8 +63,13 @@ internal static class DatabricksTypeMap
             "DECIMAL" when column.TypePrecision > MaxNetDecimalPrecision => SqlDecimal.Parse(raw),
             "DECIMAL" => decimal.Parse(raw, CultureInfo.InvariantCulture),
             "DATE" => DateOnly.Parse(raw, CultureInfo.InvariantCulture),
-            "TIMESTAMP" or "TIMESTAMP_NTZ" => DateTime.Parse(
+            "TIMESTAMP" => DateTime.Parse(
                 raw, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal),
+            // NTZ has no time zone: preserve the wall-clock value with Unspecified kind so a
+            // read/write round trip re-binds as TIMESTAMP_NTZ instead of TIMESTAMP.
+            "TIMESTAMP_NTZ" => DateTime.SpecifyKind(
+                DateTime.Parse(raw, CultureInfo.InvariantCulture, DateTimeStyles.NoCurrentDateDefault),
+                DateTimeKind.Unspecified),
             "BINARY" => Convert.FromBase64String(raw),
             _ => raw,
         };
@@ -92,7 +97,7 @@ internal static class DatabricksTypeMap
                 : a.GetValue(index)!.Value,
             Date32Array a => a.GetDateOnly(index)!.Value,
             Date64Array a => a.GetDateOnly(index)!.Value,
-            TimestampArray a => a.GetTimestamp(index)!.Value.UtcDateTime,
+            TimestampArray a => ConvertTimestamp(a, index, column),
             StringArray a => a.GetString(index),
             BinaryArray a => a.GetBytes(index).ToArray(),
             YearMonthIntervalArray a => FormatYearMonthInterval(a.GetValue(index)!.Value.Months),
@@ -107,6 +112,18 @@ internal static class DatabricksTypeMap
                 $"Arrow array type '{array.GetType().Name}' (column '{column.Name}', " +
                 $"type '{column.TypeText ?? column.TypeName}') is not supported."),
         };
+    }
+
+    /// <summary>
+    /// Converts an Arrow timestamp slot: TIMESTAMP surfaces as UTC; TIMESTAMP_NTZ has no
+    /// time zone, so the wall-clock value is preserved with <see cref="DateTimeKind.Unspecified"/>.
+    /// </summary>
+    private static DateTime ConvertTimestamp(TimestampArray array, int index, ColumnInfo column)
+    {
+        var utc = array.GetTimestamp(index)!.Value.UtcDateTime;
+        return Normalize(column.TypeName) == "TIMESTAMP_NTZ"
+            ? DateTime.SpecifyKind(utc, DateTimeKind.Unspecified)
+            : utc;
     }
 
     /// <summary>Renders a year-month interval in Databricks literal form, e.g. <c>2-3</c>.</summary>

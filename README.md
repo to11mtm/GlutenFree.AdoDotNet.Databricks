@@ -152,6 +152,9 @@ db.GetTable<Order>()
 dotnet test   # integration tests skip unless DATABRICKS_* env vars are set
 ```
 
+> **SDK prerequisite:** the repo uses the XML solution format (`.slnx`), which requires
+> .NET SDK **9.0.200 or newer** to load (projects still target `net8.0`).
+
 Live integration tests run against a real warehouse (Databricks Free Edition works) —
 see [planning/integration-test-setup.md](planning/integration-test-setup.md).
 

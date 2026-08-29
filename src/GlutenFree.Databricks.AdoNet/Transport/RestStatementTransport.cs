@@ -49,6 +49,13 @@ public sealed class RestStatementTransport : IDatabricksTransport, IDisposable
         ArgumentNullException.ThrowIfNull(authenticator);
 
         _baseUri = new Uri(host, UriKind.Absolute);
+        if (_baseUri.Scheme != Uri.UriSchemeHttps)
+        {
+            throw new ArgumentException(
+                "The workspace host must use https; bearer tokens must never be sent over plaintext http.",
+                nameof(host));
+        }
+
         _authenticator = authenticator;
         _ownsHttpClient = httpClient is null;
         _httpClient = httpClient ?? new HttpClient(new SocketsHttpHandler
@@ -210,8 +217,12 @@ public sealed class RestStatementTransport : IDatabricksTransport, IDisposable
             try
             {
                 token.ThrowIfCancellationRequested();
-                Thread.Sleep(pollDelay);
-                token.ThrowIfCancellationRequested();
+                // Cancellation-aware synchronous wait (Thread.Sleep would block Cancel()).
+                if (token.WaitHandle.WaitOne(pollDelay))
+                {
+                    token.ThrowIfCancellationRequested();
+                }
+
                 response = SendJson<StatementResponse>(
                     () => new HttpRequestMessage(HttpMethod.Get, StatementUri(statementId)),
                     token);
@@ -378,6 +389,27 @@ public sealed class RestStatementTransport : IDatabricksTransport, IDisposable
     private HttpResponseMessage SendWithRetry(
         HttpRequestMessage request, bool authenticate, CancellationToken cancellationToken)
     {
+        // Buffer the content up front and swap in a re-readable ByteArrayContent: after a
+        // send, one-shot content streams are consumed and cannot be re-read for retry clones.
+        byte[]? contentBytes = null;
+        if (request.Content is not null)
+        {
+            using var memory = new MemoryStream();
+            using (var stream = request.Content.ReadAsStream(cancellationToken))
+            {
+                stream.CopyTo(memory);
+            }
+
+            contentBytes = memory.ToArray();
+            var buffered = new ByteArrayContent(contentBytes);
+            foreach (var (key, values) in request.Content.Headers)
+            {
+                buffered.Headers.TryAddWithoutValidation(key, values);
+            }
+
+            request.Content = buffered;
+        }
+
         for (var attempt = 0; ; attempt++)
         {
             if (authenticate)
@@ -395,19 +427,23 @@ public sealed class RestStatementTransport : IDatabricksTransport, IDisposable
                 return response;
             }
 
-            var delay = response.Headers.RetryAfter?.Delta
-                ?? _retryBaseDelay * Math.Pow(2, attempt) * (0.8 + Random.Shared.NextDouble() * 0.4);
+            var delay = GetRetryDelay(response, attempt);
             _logger.LogDebug(
                 "Retrying request to {Uri} after {Delay} (attempt {Attempt}/{MaxRetries}, status {Status}).",
                 request.RequestUri, delay, attempt + 1, _maxRetries, (int)response.StatusCode);
             response.Dispose();
 
             cancellationToken.ThrowIfCancellationRequested();
-            Thread.Sleep(delay);
-            cancellationToken.ThrowIfCancellationRequested();
+            // Cancellation-aware synchronous wait: Cancel()/CommandTimeout must not be
+            // forced to sit out a server-provided retry delay.
+            if (cancellationToken.WaitHandle.WaitOne(delay))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+            }
 
-            // HttpRequestMessage instances cannot be resent; clone for the retry.
-            var clone = CloneRequestAsync(request).GetAwaiter().GetResult();
+            // HttpRequestMessage instances cannot be resent; clone for the retry
+            // (synchronously — this is the genuinely-sync pipeline).
+            var clone = CloneRequest(request, contentBytes);
             request.Dispose();
             request = clone;
         }
@@ -451,8 +487,7 @@ public sealed class RestStatementTransport : IDatabricksTransport, IDisposable
                 return response;
             }
 
-            var delay = response.Headers.RetryAfter?.Delta
-                ?? _retryBaseDelay * Math.Pow(2, attempt) * (0.8 + Random.Shared.NextDouble() * 0.4);
+            var delay = GetRetryDelay(response, attempt);
             _logger.LogDebug(
                 "Retrying request to {Uri} after {Delay} (attempt {Attempt}/{MaxRetries}, status {Status}).",
                 request.RequestUri, delay, attempt + 1, _maxRetries, (int)response.StatusCode);
@@ -461,19 +496,43 @@ public sealed class RestStatementTransport : IDatabricksTransport, IDisposable
             await Task.Delay(delay, _timeProvider, cancellationToken).ConfigureAwait(false);
 
             // HttpRequestMessage instances cannot be resent; clone for the retry.
-            var clone = await CloneRequestAsync(request).ConfigureAwait(false);
+            var contentBytes = request.Content is null
+                ? null
+                : await request.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
+            var clone = CloneRequest(request, contentBytes);
             request.Dispose();
             request = clone;
         }
     }
 
-    private static async Task<HttpRequestMessage> CloneRequestAsync(HttpRequestMessage request)
+    /// <summary>
+    /// Resolves the retry delay: honors <c>Retry-After</c> in both delta-seconds and
+    /// HTTP-date forms (clamping past dates to zero), falling back to exponential backoff
+    /// with jitter.
+    /// </summary>
+    private TimeSpan GetRetryDelay(HttpResponseMessage response, int attempt)
+    {
+        var retryAfter = response.Headers.RetryAfter;
+        if (retryAfter?.Delta is { } delta)
+        {
+            return delta > TimeSpan.Zero ? delta : TimeSpan.Zero;
+        }
+
+        if (retryAfter?.Date is { } date)
+        {
+            var untilDate = date - _timeProvider.GetUtcNow();
+            return untilDate > TimeSpan.Zero ? untilDate : TimeSpan.Zero;
+        }
+
+        return _retryBaseDelay * Math.Pow(2, attempt) * (0.8 + Random.Shared.NextDouble() * 0.4);
+    }
+
+    private static HttpRequestMessage CloneRequest(HttpRequestMessage request, byte[]? contentBytes)
     {
         var clone = new HttpRequestMessage(request.Method, request.RequestUri);
-        if (request.Content is not null)
+        if (contentBytes is not null && request.Content is not null)
         {
-            var bytes = await request.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
-            var content = new ByteArrayContent(bytes);
+            var content = new ByteArrayContent(contentBytes);
             foreach (var (key, values) in request.Content.Headers)
             {
                 content.Headers.TryAddWithoutValidation(key, values);

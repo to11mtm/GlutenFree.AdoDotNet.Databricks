@@ -23,6 +23,9 @@ public sealed class DatabricksDataReader : DbDataReader
     private readonly int _totalChunkCount;
     private readonly long _totalRowCount;
 
+    // Set when created with CommandBehavior.CloseConnection: closed along with the reader.
+    private readonly DatabricksConnection? _connectionToClose;
+
     private readonly Queue<ExternalLink> _pendingLinks = new();
     private ResultData? _pendingInline;
     private int _highestChunkSeen = -1;
@@ -35,9 +38,13 @@ public sealed class DatabricksDataReader : DbDataReader
     private int _rowInBlock = -1;
     private bool _closed;
 
-    internal DatabricksDataReader(IDatabricksTransport transport, StatementResponse response)
+    internal DatabricksDataReader(
+        IDatabricksTransport transport,
+        StatementResponse response,
+        DatabricksConnection? connectionToClose = null)
     {
         _transport = transport;
+        _connectionToClose = connectionToClose;
         _statementId = response.StatementId ?? string.Empty;
         var manifest = response.Manifest;
         _columns = manifest?.Schema?.Columns?.OrderBy(c => c.Position).ToArray() ?? [];
@@ -388,7 +395,20 @@ public sealed class DatabricksDataReader : DbDataReader
     }
 
     /// <inheritdoc />
-    public override void Close() => _closed = true;
+    /// <remarks>
+    /// When the reader was created with <see cref="System.Data.CommandBehavior.CloseConnection"/>,
+    /// closing it also closes the owning connection.
+    /// </remarks>
+    public override void Close()
+    {
+        if (_closed)
+        {
+            return;
+        }
+
+        _closed = true;
+        _connectionToClose?.Close();
+    }
 
     /// <inheritdoc />
     protected override void Dispose(bool disposing)
@@ -397,7 +417,7 @@ public sealed class DatabricksDataReader : DbDataReader
         {
             _arrowBatch?.Dispose();
             _arrowReader?.Dispose();
-            _closed = true;
+            Close();
         }
 
         base.Dispose(disposing);

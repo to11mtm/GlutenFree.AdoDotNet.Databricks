@@ -119,14 +119,14 @@ public sealed class DatabricksCommand : DbCommand
     /// <remarks>Genuinely synchronous; prefer <see cref="ExecuteNonQueryAsync(CancellationToken)"/>.</remarks>
     public override int ExecuteNonQuery()
     {
-        using var reader = ExecuteReaderInternal();
+        using var reader = ExecuteReaderInternal(CommandBehavior.Default);
         return reader.GetAffectedRowCount();
     }
 
     /// <inheritdoc />
     public override async Task<int> ExecuteNonQueryAsync(CancellationToken cancellationToken)
     {
-        await using var reader = await ExecuteReaderInternalAsync(cancellationToken).ConfigureAwait(false);
+        await using var reader = await ExecuteReaderInternalAsync(CommandBehavior.Default, cancellationToken).ConfigureAwait(false);
         return await reader.GetAffectedRowCountAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -134,37 +134,49 @@ public sealed class DatabricksCommand : DbCommand
     /// <remarks>Genuinely synchronous; prefer <see cref="ExecuteScalarAsync(CancellationToken)"/>.</remarks>
     public override object? ExecuteScalar()
     {
-        using var reader = ExecuteReaderInternal();
+        using var reader = ExecuteReaderInternal(CommandBehavior.Default);
         return reader.Read() && reader.FieldCount > 0 ? reader.GetValue(0) : null;
     }
 
     /// <inheritdoc />
     public override async Task<object?> ExecuteScalarAsync(CancellationToken cancellationToken)
     {
-        await using var reader = await ExecuteReaderInternalAsync(cancellationToken).ConfigureAwait(false);
+        await using var reader = await ExecuteReaderInternalAsync(CommandBehavior.Default, cancellationToken).ConfigureAwait(false);
         return await reader.ReadAsync(cancellationToken).ConfigureAwait(false) && reader.FieldCount > 0
             ? reader.GetValue(0)
             : null;
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// <see cref="CommandBehavior.CloseConnection"/> is honored (the connection closes when
+    /// the reader closes); other behaviors are execution hints without effect here.
+    /// </remarks>
     protected override DbDataReader ExecuteDbDataReader(CommandBehavior behavior)
-        => ExecuteReaderInternal();
+        => ExecuteReaderInternal(behavior);
 
     /// <inheritdoc />
+    /// <remarks>
+    /// <see cref="CommandBehavior.CloseConnection"/> is honored (the connection closes when
+    /// the reader closes); other behaviors are execution hints without effect here.
+    /// </remarks>
     protected override async Task<DbDataReader> ExecuteDbDataReaderAsync(
         CommandBehavior behavior, CancellationToken cancellationToken)
-        => await ExecuteReaderInternalAsync(cancellationToken).ConfigureAwait(false);
+        => await ExecuteReaderInternalAsync(behavior, cancellationToken).ConfigureAwait(false);
 
     /// <summary>Executes the command and returns a <see cref="DatabricksDataReader"/>.</summary>
     /// <remarks>Genuinely synchronous; prefer <see cref="ExecuteReaderAsync(CancellationToken)"/>.</remarks>
-    public new DatabricksDataReader ExecuteReader() => ExecuteReaderInternal();
+    public new DatabricksDataReader ExecuteReader() => ExecuteReaderInternal(CommandBehavior.Default);
+
+    /// <summary>Executes the command with the given behavior and returns a <see cref="DatabricksDataReader"/>.</summary>
+    public new DatabricksDataReader ExecuteReader(CommandBehavior behavior) => ExecuteReaderInternal(behavior);
 
     /// <summary>Executes the command and returns a <see cref="DatabricksDataReader"/>.</summary>
     public new async Task<DatabricksDataReader> ExecuteReaderAsync(CancellationToken cancellationToken = default)
-        => await ExecuteReaderInternalAsync(cancellationToken).ConfigureAwait(false);
+        => await ExecuteReaderInternalAsync(CommandBehavior.Default, cancellationToken).ConfigureAwait(false);
 
-    private async Task<DatabricksDataReader> ExecuteReaderInternalAsync(CancellationToken cancellationToken)
+    private async Task<DatabricksDataReader> ExecuteReaderInternalAsync(
+        CommandBehavior behavior, CancellationToken cancellationToken)
     {
         var (connection, request) = PrepareExecution();
         var timeout = TimeSpan.FromSeconds(CommandTimeout);
@@ -182,10 +194,10 @@ public sealed class DatabricksCommand : DbCommand
             _userCancellation = null;
         }
 
-        return new DatabricksDataReader(connection.Transport, response);
+        return CreateReader(connection, response, behavior);
     }
 
-    private DatabricksDataReader ExecuteReaderInternal()
+    private DatabricksDataReader ExecuteReaderInternal(CommandBehavior behavior)
     {
         var (connection, request) = PrepareExecution();
         var timeout = TimeSpan.FromSeconds(CommandTimeout);
@@ -202,8 +214,15 @@ public sealed class DatabricksCommand : DbCommand
             _userCancellation = null;
         }
 
-        return new DatabricksDataReader(connection.Transport, response);
+        return CreateReader(connection, response, behavior);
     }
+
+    private static DatabricksDataReader CreateReader(
+        DatabricksConnection connection, StatementResponse response, CommandBehavior behavior)
+        => new(
+            connection.Transport,
+            response,
+            behavior.HasFlag(CommandBehavior.CloseConnection) ? connection : null);
 
     private (DatabricksConnection Connection, StatementRequest Request) PrepareExecution()
     {

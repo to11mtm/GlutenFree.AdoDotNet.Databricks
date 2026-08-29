@@ -8,6 +8,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="GlutenFree.Databricks.AdoNet.Linq2Db.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\GlutenFree.Databricks.AdoNet\GlutenFree.Databricks.AdoNet.csproj" />
   </ItemGroup>
 

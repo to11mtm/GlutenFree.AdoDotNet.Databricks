@@ -57,12 +57,13 @@ public sealed class DatabricksSchemaProvider : ISchemaProvider
                 foreach (var columnRow in tableColumns.OrderBy(r => Convert.ToInt32(r["ORDINAL_POSITION"])))
                 {
                     var dataType = (string)columnRow["DATA_TYPE"];
-                    var systemType = GetSystemType(dataType);
+                    var fullDataType = columnRow["FULL_DATA_TYPE"] as string;
+                    var systemType = GetSystemType(dataType, fullDataType);
                     tableSchema.Columns.Add(new ColumnSchema
                     {
                         ColumnName = (string)columnRow["COLUMN_NAME"],
                         MemberName = ToPascalCase((string)columnRow["COLUMN_NAME"]),
-                        ColumnType = columnRow["FULL_DATA_TYPE"] as string ?? dataType,
+                        ColumnType = fullDataType ?? dataType,
                         IsNullable = string.Equals(
                             columnRow["IS_NULLABLE"] as string, "YES", StringComparison.OrdinalIgnoreCase),
                         SystemType = systemType,
@@ -94,7 +95,13 @@ public sealed class DatabricksSchemaProvider : ISchemaProvider
             : string.Concat(parts.Select(p => char.ToUpperInvariant(p[0]) + p[1..]));
     }
 
-    private static Type GetSystemType(string dataType) => dataType.ToUpperInvariant() switch
+    /// <summary>
+    /// Maps a Databricks type to the scaffolded member type. DECIMAL selects between
+    /// <see cref="decimal"/> and <see cref="System.Data.SqlTypes.SqlDecimal"/> based on
+    /// the precision in <paramref name="fullDataType"/> (e.g. <c>decimal(38,0)</c>),
+    /// matching the reader's precision-dependent mapping.
+    /// </summary>
+    internal static Type GetSystemType(string dataType, string? fullDataType) => dataType.ToUpperInvariant() switch
     {
         "BOOLEAN" => typeof(bool),
         "TINYINT" or "BYTE" => typeof(sbyte),
@@ -103,12 +110,38 @@ public sealed class DatabricksSchemaProvider : ISchemaProvider
         "BIGINT" or "LONG" => typeof(long),
         "FLOAT" or "REAL" => typeof(float),
         "DOUBLE" => typeof(double),
-        "DECIMAL" => typeof(decimal),
+        "DECIMAL" => GetDecimalPrecision(fullDataType) > 28
+            ? typeof(System.Data.SqlTypes.SqlDecimal)
+            : typeof(decimal),
         "DATE" => typeof(DateOnly),
         "TIMESTAMP" or "TIMESTAMP_NTZ" => typeof(DateTime),
         "BINARY" => typeof(byte[]),
         _ => typeof(string),
     };
+
+    /// <summary>Parses the precision from a full type text like <c>decimal(38,2)</c>; 0 when absent.</summary>
+    internal static int GetDecimalPrecision(string? fullDataType)
+    {
+        if (string.IsNullOrEmpty(fullDataType))
+        {
+            // Without explicit precision, Databricks DECIMAL defaults to (10,0).
+            return 10;
+        }
+
+        var open = fullDataType.IndexOf('(');
+        if (open < 0)
+        {
+            return 10;
+        }
+
+        var end = fullDataType.IndexOfAny([',', ')'], open + 1);
+        return end > open && int.TryParse(
+            fullDataType.AsSpan(open + 1, end - open - 1).Trim(),
+            System.Globalization.CultureInfo.InvariantCulture,
+            out var precision)
+            ? precision
+            : 10;
+    }
 
     private static LinqToDB.DataType GetLinqToDbDataType(string dataType) => dataType.ToUpperInvariant() switch
     {

@@ -46,6 +46,13 @@ public sealed class OAuthM2MAuthenticator : IDatabricksAuthenticator, IDisposabl
         ArgumentException.ThrowIfNullOrEmpty(clientSecret);
 
         _tokenEndpoint = new Uri(new Uri(host, UriKind.Absolute), "/oidc/v1/token");
+        if (_tokenEndpoint.Scheme != Uri.UriSchemeHttps)
+        {
+            throw new ArgumentException(
+                "The workspace host must use https; OAuth client credentials must never be sent over plaintext http.",
+                nameof(host));
+        }
+
         _basicCredentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{clientId}:{clientSecret}"));
         _ownsHttpClient = httpClient is null;
         _httpClient = httpClient ?? new HttpClient();

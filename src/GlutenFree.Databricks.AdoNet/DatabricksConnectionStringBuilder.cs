@@ -257,9 +257,11 @@ public sealed class DatabricksConnectionStringBuilder : DbConnectionStringBuilde
         }
 
         if (!Uri.TryCreate(Host, UriKind.Absolute, out var hostUri)
-            || (hostUri.Scheme != Uri.UriSchemeHttps && hostUri.Scheme != Uri.UriSchemeHttp))
+            || hostUri.Scheme != Uri.UriSchemeHttps)
         {
-            throw new ArgumentException($"'Host' must be an absolute http(s) URL; got '{Host}'.");
+            throw new ArgumentException(
+                $"'Host' must be an absolute https URL; got '{Host}'. " +
+                "Bearer credentials must never be sent over plaintext http.");
         }
 
         if (EffectiveWarehouseId.Length == 0)
