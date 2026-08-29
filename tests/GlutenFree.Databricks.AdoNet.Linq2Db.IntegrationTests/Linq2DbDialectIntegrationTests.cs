@@ -86,6 +86,37 @@ public sealed class Linq2DbDialectIntegrationTests : IAsyncLifetime
         Assert.Equal(2, topPerRegion.Count);
         Assert.Equal(("east", 30.00m), (topPerRegion[0].Region, topPerRegion[0].Amount));
         Assert.Equal(("west", 20.00m), (topPerRegion[1].Region, topPerRegion[1].Amount));
+        // Guard against linq2db reducing the correlated subquery to another shape:
+        // this test must actually exercise the INNER JOIN LATERAL emission.
+        Assert.Contains("INNER JOIN LATERAL", db.LastQuery);
+    }
+
+    [IntegrationFact]
+    public void Left_lateral_join_keeps_rows_without_matches()
+    {
+        using var db = DatabricksTools.CreateDataConnection(_connection);
+
+        // Top sale over 25.00 per region: east qualifies (30.00), west has none —
+        // the LEFT JOIN LATERAL emission must keep west with NULLs. Selecting two
+        // subquery columns forces the OuterApply (LEFT LATERAL) join shape.
+        var results =
+            (from r in GetSales(db).Select(s => s.Region).Distinct()
+             from top in GetSales(db)
+                 .Where(s => s.Region == r && s.Amount > 25.00m)
+                 .OrderByDescending(s => s.Amount)
+                 .Take(1)
+                 .DefaultIfEmpty()
+             orderby r
+             select new { Region = r, TopId = (long?)top!.Id, TopAmount = (decimal?)top.Amount }).ToList();
+
+        Assert.Equal(2, results.Count);
+        Assert.Equal(("east", 2L, 30.00m), (results[0].Region, results[0].TopId, results[0].TopAmount));
+        Assert.Equal("west", results[1].Region);
+        Assert.Null(results[1].TopId);
+        Assert.Null(results[1].TopAmount);
+        // Guard against linq2db reducing the correlated subquery to another shape:
+        // this test must actually exercise the LEFT JOIN LATERAL emission.
+        Assert.Contains("LEFT JOIN LATERAL", db.LastQuery);
     }
 
     [IntegrationFact]

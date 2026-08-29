@@ -283,13 +283,13 @@ public class Linq2DbSqlGenerationTests
     }
 
     [Fact]
-    public void Correlated_take_subquery_generates_lateral_join()
+    public void Correlated_take_subquery_generates_inner_lateral_join()
     {
         var (db, transport) = CreateDb();
         using var _ = db;
         transport.NextResponse = EmptyResult("name", "amount");
 
-        // Correlated subquery with Take forces an APPLY join, which the Databricks
+        // Correlated subquery with Take forces a CROSS APPLY join, which the Databricks
         // builder must emit as INNER JOIN LATERAL (no CROSS APPLY in Databricks SQL).
         (from c in db.GetTable<Customer>()
          from o in db.GetTable<Order>()
@@ -299,7 +299,31 @@ public class Linq2DbSqlGenerationTests
          select new { c.Name, o.Amount }).ToList();
 
         var sql = GetSql(transport);
-        Assert.Contains("JOIN LATERAL", sql);
+        Assert.Contains("INNER JOIN LATERAL", sql);
+        Assert.DoesNotContain("APPLY", sql);
+    }
+
+    [Fact]
+    public void Optional_correlated_take_subquery_generates_left_lateral_join()
+    {
+        var (db, transport) = CreateDb();
+        using var _ = db;
+        transport.NextResponse = EmptyResult("name", "amount");
+
+        // DefaultIfEmpty on the correlated Take subquery forces an OUTER APPLY join,
+        // which the Databricks builder must emit as LEFT JOIN LATERAL — rows with no
+        // matching orders must survive with NULLs. Selecting multiple subquery columns
+        // prevents linq2db from lowering this to a scalar column subquery.
+        (from c in db.GetTable<Customer>()
+         from o in db.GetTable<Order>()
+             .Where(o => o.CustomerId == c.Id)
+             .OrderByDescending(o => o.Amount)
+             .Take(1)
+             .DefaultIfEmpty()
+         select new { c.Name, OrderId = (long?)o!.Id, Amount = (decimal?)o.Amount }).ToList();
+
+        var sql = GetSql(transport);
+        Assert.Contains("LEFT JOIN LATERAL", sql);
         Assert.DoesNotContain("APPLY", sql);
     }
 
