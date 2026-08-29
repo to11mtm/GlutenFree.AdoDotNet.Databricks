@@ -125,7 +125,7 @@ db.GetTable<Order>()
 | `TINYINT` / `SMALLINT` / `INT` / `BIGINT` | `sbyte` / `short` / `int` / `long` |
 | `FLOAT` / `DOUBLE` | `float` / `double` |
 | `DECIMAL(p≤28,s)` | `decimal` |
-| `DECIMAL(p>28,s)` | `System.Data.SqlTypes.SqlDecimal` (`GetSqlDecimal`, `GetString`) |
+| `DECIMAL(p>28,s)` | `System.Data.SqlTypes.SqlDecimal` (`GetSqlDecimal`, `GetString`), or the provider's arbitrary-precision `DatabricksDecimal` via `GetDatabricksDecimal` / `GetFieldValue<DatabricksDecimal>`; both types also bind as parameters |
 | `STRING` / `CHAR` | `string` |
 | `BOOLEAN` | `bool` |
 | `BINARY` | `byte[]` |

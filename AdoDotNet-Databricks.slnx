@@ -11,6 +11,7 @@
     <Project Path="src/GlutenFree.Databricks.AdoNet/GlutenFree.Databricks.AdoNet.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/GlutenFree.Databricks.AdoNet.DecimalTests/GlutenFree.Databricks.AdoNet.DecimalTests.csproj" />
     <Project Path="tests/GlutenFree.Databricks.AdoNet.IntegrationTests/GlutenFree.Databricks.AdoNet.IntegrationTests.csproj" />
     <Project Path="tests/GlutenFree.Databricks.AdoNet.Linq2Db.IntegrationTests/GlutenFree.Databricks.AdoNet.Linq2Db.IntegrationTests.csproj" />
     <Project Path="tests/GlutenFree.Databricks.AdoNet.Linq2Db.Tests/GlutenFree.Databricks.AdoNet.Linq2Db.Tests.csproj" />

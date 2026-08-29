@@ -30,7 +30,12 @@
 13. ✅ Docs: root README.md (quickstart ADO.NET/Dapper/linq2db, connection-string reference,
     type-mapping table, limitations); LICENSE = Apache-2.0 (canonical text at repo root,
     PackageLicenseExpression in Directory.Build.props)
-14. Stretch: DatabricksDecimal BigDecimal-style struct
+14. ✅ Stretch: DatabricksDecimal — arbitrary-precision BigDecimal-style struct
+    (BigInteger unscaled + scale) in the core package; numeric equality/comparison across
+    scales, +,-,*, Divide(scale, ToEven/AwayFromZero), Normalize, conversions
+    (decimal/SqlDecimal/long, lossless beyond 38 digits), reader GetDatabricksDecimal +
+    GetFieldValue<DatabricksDecimal>, parameter binding as DECIMAL(p,s);
+    53 tests in dedicated tests/GlutenFree.Databricks.AdoNet.DecimalTests project
 
 ## Notes
 - Projects renamed to GlutenFree.* prefix (user, 2026-08-29).

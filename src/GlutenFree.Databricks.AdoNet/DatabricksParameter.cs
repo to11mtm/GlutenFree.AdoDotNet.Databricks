@@ -120,6 +120,7 @@ public sealed class DatabricksParameter : DbParameter
                 dt.Kind == DateTimeKind.Unspecified ? "TIMESTAMP_NTZ" : "TIMESTAMP"),
             DateTimeOffset dto => (dto.ToString("yyyy-MM-dd HH:mm:ss.ffffffzzz", CultureInfo.InvariantCulture), "TIMESTAMP"),
             System.Data.SqlTypes.SqlDecimal sd => (sd.ToString(), $"DECIMAL({sd.Precision},{sd.Scale})"),
+            DatabricksDecimal dd => (dd.ToString(), $"DECIMAL({Math.Max(dd.Precision, dd.Scale + 1)},{dd.Scale})"),
             byte[] => throw new NotSupportedException(
                 "BINARY parameters are not supported by the Databricks Statement Execution API. " +
                 "Consider passing a hex/base64 STRING and decoding in SQL."),

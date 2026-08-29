@@ -243,6 +243,24 @@ public sealed class DatabricksDataReader : DbDataReader
         };
     }
 
+    /// <summary>
+    /// Gets a DECIMAL column value as an arbitrary-precision <see cref="DatabricksDecimal"/>,
+    /// lossless for any Databricks DECIMAL precision/scale.
+    /// </summary>
+    public DatabricksDecimal GetDatabricksDecimal(int ordinal)
+    {
+        var value = GetValue(ordinal);
+        return value switch
+        {
+            decimal m => DatabricksDecimal.FromDecimal(m),
+            SqlDecimal sd => DatabricksDecimal.FromSqlDecimal(sd),
+            string s => DatabricksDecimal.Parse(s),
+            sbyte or short or int or long => new DatabricksDecimal(
+                Convert.ToInt64(value, System.Globalization.CultureInfo.InvariantCulture), 0),
+            _ => throw new InvalidCastException($"Column {ordinal} is not a DECIMAL column."),
+        };
+    }
+
     /// <inheritdoc />
     public override string GetString(int ordinal)
     {
@@ -323,6 +341,11 @@ public sealed class DatabricksDataReader : DbDataReader
         if (typeof(T) == typeof(SqlDecimal))
         {
             return (T)(object)GetSqlDecimal(ordinal);
+        }
+
+        if (typeof(T) == typeof(DatabricksDecimal))
+        {
+            return (T)(object)GetDatabricksDecimal(ordinal);
         }
 
         if (typeof(T) == typeof(string))
