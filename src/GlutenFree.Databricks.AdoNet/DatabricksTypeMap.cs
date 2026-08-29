@@ -95,12 +95,52 @@ internal static class DatabricksTypeMap
             TimestampArray a => a.GetTimestamp(index)!.Value.UtcDateTime,
             StringArray a => a.GetString(index),
             BinaryArray a => a.GetBytes(index).ToArray(),
+            YearMonthIntervalArray a => FormatYearMonthInterval(a.GetValue(index)!.Value.Months),
+            DayTimeIntervalArray a => FormatDayTimeInterval(
+                a.GetValue(index)!.Value.Days, a.GetValue(index)!.Value.Milliseconds * 1_000_000L),
+            MonthDayNanosecondIntervalArray a => FormatMonthDayNanoInterval(a.GetValue(index)!.Value),
+            DurationArray a => FormatDayTimeInterval(0, ToNanoseconds(a, index)),
             // The Statement Execution API delivers ARRAY/MAP/STRUCT as genuine Arrow nested
             // arrays; v1 surfaces them as JSON strings per the type-mapping spec.
             ListArray or StructArray => SerializeNestedToJson(array, index),
             _ => throw new NotSupportedException(
                 $"Arrow array type '{array.GetType().Name}' (column '{column.Name}', " +
                 $"type '{column.TypeText ?? column.TypeName}') is not supported."),
+        };
+    }
+
+    /// <summary>Renders a year-month interval in Databricks literal form, e.g. <c>2-3</c>.</summary>
+    private static string FormatYearMonthInterval(int totalMonths)
+    {
+        var sign = totalMonths < 0 ? "-" : string.Empty;
+        var months = Math.Abs(totalMonths);
+        return $"{sign}{months / 12}-{months % 12}";
+    }
+
+    /// <summary>Renders a day-time interval in Databricks literal form, e.g. <c>5 04:03:02.100000000</c>.</summary>
+    private static string FormatDayTimeInterval(int days, long nanoseconds)
+    {
+        var total = TimeSpan.FromDays(days) + TimeSpan.FromTicks(nanoseconds / 100);
+        var sign = total < TimeSpan.Zero ? "-" : string.Empty;
+        var t = total.Duration();
+        var subSecondNanos = (nanoseconds % 1_000_000_000L + 1_000_000_000L) % 1_000_000_000L;
+        return string.Create(
+            CultureInfo.InvariantCulture,
+            $"{sign}{(int)t.TotalDays} {t.Hours:00}:{t.Minutes:00}:{t.Seconds:00}.{subSecondNanos:000000000}");
+    }
+
+    private static string FormatMonthDayNanoInterval(Apache.Arrow.Scalars.MonthDayNanosecondInterval value)
+        => $"{FormatYearMonthInterval(value.Months)} {FormatDayTimeInterval(value.Days, value.Nanoseconds)}";
+
+    private static long ToNanoseconds(DurationArray array, int index)
+    {
+        var value = array.GetValue(index)!.Value;
+        return ((Apache.Arrow.Types.DurationType)array.Data.DataType).Unit switch
+        {
+            Apache.Arrow.Types.TimeUnit.Second => value * 1_000_000_000L,
+            Apache.Arrow.Types.TimeUnit.Millisecond => value * 1_000_000L,
+            Apache.Arrow.Types.TimeUnit.Microsecond => value * 1_000L,
+            _ => value,
         };
     }
 
@@ -161,14 +201,14 @@ internal static class DatabricksTypeMap
             case BinaryArray a:
                 writer.WriteBase64StringValue(a.GetBytes(index));
                 break;
-            // MapArray derives from ListArray; match it first.
+            // MapArray derives from ListArray; match it first. Keys/Values are the
+            // children of the entries struct (MapArray.Values hides ListArray.Values).
             case MapArray m:
             {
                 var start = m.ValueOffsets[index];
                 var end = m.ValueOffsets[index + 1];
-                var entries = (StructArray)m.Values;
-                var keys = entries.Fields[0];
-                var values = entries.Fields[1];
+                var keys = m.Keys;
+                var values = m.Values;
                 writer.WriteStartObject();
                 for (var i = start; i < end; i++)
                 {
