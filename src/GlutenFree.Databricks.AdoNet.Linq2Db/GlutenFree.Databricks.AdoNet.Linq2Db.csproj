@@ -1,0 +1,20 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>GlutenFree.Databricks.AdoNet.Linq2Db</PackageId>
+    <Description>linq2db data provider for Databricks SQL warehouses, built on Databricks.AdoNet.</Description>
+    <PackageTags>databricks;linq2db;linq;sql;data;provider</PackageTags>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\GlutenFree.Databricks.AdoNet\GlutenFree.Databricks.AdoNet.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- linq2db Internal.DataProvider APIs are stable across minor versions but may break
+         across majors; keep the dependency within 6.x. -->
+    <PackageReference Include="linq2db" Version="[6.4.0,7.0.0)" />
+  </ItemGroup>
+
+</Project>

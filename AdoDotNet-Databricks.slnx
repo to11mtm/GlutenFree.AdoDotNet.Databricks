@@ -7,13 +7,13 @@
     <File Path="planning/token-info.md" />
   </Folder>
   <Folder Name="/src/">
-    <Project Path="src/Databricks.AdoNet.Linq2Db/Databricks.AdoNet.Linq2Db.csproj" />
-    <Project Path="src/Databricks.AdoNet/Databricks.AdoNet.csproj" />
+    <Project Path="src/GlutenFree.Databricks.AdoNet.Linq2Db/GlutenFree.Databricks.AdoNet.Linq2Db.csproj" />
+    <Project Path="src/GlutenFree.Databricks.AdoNet/GlutenFree.Databricks.AdoNet.csproj" />
   </Folder>
   <Folder Name="/tests/">
-    <Project Path="tests/Databricks.AdoNet.IntegrationTests/Databricks.AdoNet.IntegrationTests.csproj" />
-    <Project Path="tests/Databricks.AdoNet.Linq2Db.IntegrationTests/Databricks.AdoNet.Linq2Db.IntegrationTests.csproj" />
-    <Project Path="tests/Databricks.AdoNet.Linq2Db.Tests/Databricks.AdoNet.Linq2Db.Tests.csproj" />
-    <Project Path="tests/Databricks.AdoNet.Tests/Databricks.AdoNet.Tests.csproj" />
+    <Project Path="tests/GlutenFree.Databricks.AdoNet.IntegrationTests/GlutenFree.Databricks.AdoNet.IntegrationTests.csproj" />
+    <Project Path="tests/GlutenFree.Databricks.AdoNet.Linq2Db.IntegrationTests/GlutenFree.Databricks.AdoNet.Linq2Db.IntegrationTests.csproj" />
+    <Project Path="tests/GlutenFree.Databricks.AdoNet.Linq2Db.Tests/GlutenFree.Databricks.AdoNet.Linq2Db.Tests.csproj" />
+    <Project Path="tests/GlutenFree.Databricks.AdoNet.Tests/GlutenFree.Databricks.AdoNet.Tests.csproj" />
   </Folder>
 </Solution>
