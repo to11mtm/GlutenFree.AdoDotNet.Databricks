@@ -23,7 +23,10 @@
     LockedMappingSchema literals, SchemaProvider over information_schema, MemberTranslator defaults;
     DatabricksTools/UseDatabricks entry points; linq2db pinned [6.4.0,7.0.0); tests split into
     tests/Databricks.AdoNet.Linq2Db.Tests (8 smoke) + tests/Databricks.AdoNet.Linq2Db.IntegrationTests (5 live))
-12. CI (GitHub Actions), NuGet packaging (SourceLink, symbols, PackageReadmeFile)
+12. ✅ CI + packaging: .github/workflows/{ci,release,integration}.yml; src/Directory.Build.props
+    adds SourceLink (GitHub), snupkg symbols, packed README, VersionPrefix 0.1.0 (release version
+    derived from v* tag); RepositoryUrl inferred from git remote (org-move safe); secrets needed:
+    NUGET_API_KEY (release), DATABRICKS_* (manual integration workflow)
 13. ✅ Docs: root README.md (quickstart ADO.NET/Dapper/linq2db, connection-string reference,
     type-mapping table, limitations); LICENSE = Apache-2.0 (canonical text at repo root,
     PackageLicenseExpression in Directory.Build.props)

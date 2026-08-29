@@ -1,0 +1,35 @@
+name: Integration Tests
+
+# Runs the live integration tests against a Databricks SQL warehouse.
+# Manual trigger only: requires DATABRICKS_HOST, DATABRICKS_TOKEN, and
+# DATABRICKS_WAREHOUSE_ID secrets (see planning/integration-test-setup.md).
+on:
+  workflow_dispatch:
+
+env:
+  CI: true
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+  DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+  DATABRICKS_WAREHOUSE_ID: ${{ secrets.DATABRICKS_WAREHOUSE_ID }}
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Verify secrets are configured
+        run: |
+          if [ -z "$DATABRICKS_HOST" ]; then
+            echo "::error::DATABRICKS_* secrets are not configured on this repository."
+            exit 1
+          fi
+
+      - name: Run integration tests
+        run: dotnet test --configuration Release --filter "Category=Integration"

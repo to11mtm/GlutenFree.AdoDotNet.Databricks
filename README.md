@@ -155,6 +155,18 @@ dotnet test   # integration tests skip unless DATABRICKS_* env vars are set
 Live integration tests run against a real warehouse (Databricks Free Edition works) —
 see [planning/integration-test-setup.md](planning/integration-test-setup.md).
 
+## CI & releases
+
+- **CI** (`.github/workflows/ci.yml`): every push/PR builds, runs tests (integration tests
+  self-skip without credentials), and uploads pack artifacts.
+- **Integration** (`.github/workflows/integration.yml`): manual dispatch; requires
+  `DATABRICKS_HOST` / `DATABRICKS_TOKEN` / `DATABRICKS_WAREHOUSE_ID` repository secrets.
+- **Release** (`.github/workflows/release.yml`): push a `v*` tag (e.g. `v0.1.0`) to build,
+  test, pack with that version, push both packages to NuGet (requires the `NUGET_API_KEY`
+  secret), and create a GitHub release. Packages include SourceLink, symbol packages
+  (`.snupkg`), XML docs, and this README; the repository URL is inferred from the git
+  remote at pack time, so it stays correct after the repo moves to its organization.
+
 ## License
 
 [Apache License 2.0](LICENSE)
