@@ -1,6 +1,7 @@
 using System.Data.Common;
 using GlutenFree.Databricks.AdoNet;
 using LinqToDB;
+using LinqToDB.Data;
 using LinqToDB.DataProvider;
 using LinqToDB.Internal.DataProvider;
 using LinqToDB.Internal.SqlProvider;
@@ -22,11 +23,18 @@ public sealed class DatabricksDataProvider : DataProviderBase
     {
         SqlProviderFlags.IsCommonTableExpressionsSupported = true;
         SqlProviderFlags.IsSubQueryOrderBySupported = true;
-        SqlProviderFlags.IsInsertOrUpdateSupported = false; // Use MERGE explicitly instead.
-        SqlProviderFlags.IsUpdateFromSupported = false;
-        SqlProviderFlags.IsNullsOrderingSupported = true;
+        SqlProviderFlags.IsInsertOrUpdateSupported = false; // No native upsert; linq2db lowers to MERGE.
+        SqlProviderFlags.IsUpdateFromSupported = false; // Databricks UPDATE has no FROM clause.
+        SqlProviderFlags.IsNullsOrderingSupported = true; // NULLS FIRST/LAST supported.
         SqlProviderFlags.IsWindowFunctionsSupported = true;
-        SqlProviderFlags.IsAllSetOperationsSupported = true;
+        SqlProviderFlags.IsAllSetOperationsSupported = true; // EXCEPT ALL / INTERSECT ALL.
+        SqlProviderFlags.IsDistinctFromSupported = true; // IS [NOT] DISTINCT FROM.
+        // CROSS/OUTER APPLY are emitted as INNER/LEFT JOIN LATERAL (see DatabricksSqlBuilder).
+        SqlProviderFlags.IsApplyJoinSupported = true;
+        SqlProviderFlags.IsCrossApplyJoinSupportsCondition = true;
+        SqlProviderFlags.IsOuterApplyJoinSupportsCondition = true;
+        // Row constructors: (a, b) = (1, 2) equality and (a, b) IN ((1, 2), ...) are supported.
+        SqlProviderFlags.RowConstructorSupport = RowFeature.Equality | RowFeature.In;
 
         _sqlOptimizer = new DatabricksSqlOptimizer(SqlProviderFlags);
     }
@@ -62,4 +70,24 @@ public sealed class DatabricksDataProvider : DataProviderBase
     /// <inheritdoc />
     protected override LinqToDB.Linq.Translation.IMemberTranslator CreateMemberTranslator()
         => new DatabricksMemberTranslator();
+
+    /// <inheritdoc />
+    public override BulkCopyRowsCopied BulkCopy<T>(
+        DataOptions options, ITable<T> table, IEnumerable<T> source)
+        => new DatabricksBulkCopy().BulkCopy(ResolveBulkCopyType(options), table, options, source);
+
+    /// <inheritdoc />
+    public override Task<BulkCopyRowsCopied> BulkCopyAsync<T>(
+        DataOptions options, ITable<T> table, IEnumerable<T> source, CancellationToken cancellationToken)
+        => new DatabricksBulkCopy().BulkCopyAsync(ResolveBulkCopyType(options), table, options, source, cancellationToken);
+
+    /// <inheritdoc />
+    public override Task<BulkCopyRowsCopied> BulkCopyAsync<T>(
+        DataOptions options, ITable<T> table, IAsyncEnumerable<T> source, CancellationToken cancellationToken)
+        => new DatabricksBulkCopy().BulkCopyAsync(ResolveBulkCopyType(options), table, options, source, cancellationToken);
+
+    private static BulkCopyType ResolveBulkCopyType(DataOptions options)
+        => options.BulkCopyOptions.BulkCopyType == BulkCopyType.Default
+            ? BulkCopyType.MultipleRows
+            : options.BulkCopyOptions.BulkCopyType;
 }

@@ -429,3 +429,6 @@ FodyWeavers.xsd
 *.msp
 .idea/
 planning/token-info.md
+
+# Contains a live Databricks PAT - never commit
+planning/token-info.md

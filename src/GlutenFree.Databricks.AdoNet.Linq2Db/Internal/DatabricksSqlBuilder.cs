@@ -37,6 +37,39 @@ public class DatabricksSqlBuilder : BasicSqlBuilder
     protected override ISqlBuilder CreateSqlBuilder() => new DatabricksSqlBuilder(this);
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Databricks SQL has no CROSS/OUTER APPLY; the equivalents are INNER JOIN LATERAL and
+    /// LEFT JOIN LATERAL (PostgreSQL-style). Returning true makes the caller emit the ON clause
+    /// that LATERAL joins require.
+    /// </remarks>
+    protected override bool BuildJoinType(SqlJoinedTable join, SqlSearchCondition condition)
+    {
+        switch (join.JoinType)
+        {
+            case JoinType.CrossApply:
+                StringBuilder.Append("INNER JOIN LATERAL ");
+                return true;
+            case JoinType.OuterApply:
+                StringBuilder.Append("LEFT JOIN LATERAL ");
+                return true;
+            default:
+                return base.BuildJoinType(join, condition);
+        }
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Databricks MERGE rejects column alias lists on the USING source
+    /// (COLUMN_ALIASES_NOT_ALLOWED), and a bare VALUES source yields unusable default
+    /// column names (col1, col2, ...). Disabling both makes linq2db build the source as
+    /// SELECT ... UNION ALL with inline column aliases, which Databricks accepts.
+    /// </remarks>
+    protected override bool SupportsColumnAliasesInSource => false;
+
+    /// <inheritdoc />
+    protected override bool IsValuesSyntaxSupported => false;
+
+    /// <inheritdoc />
     protected override string LimitFormat(SelectQuery selectQuery) => "LIMIT {0}";
 
     /// <inheritdoc />
