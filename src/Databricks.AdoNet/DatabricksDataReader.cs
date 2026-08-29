@@ -363,16 +363,25 @@ public sealed class DatabricksDataReader : DbDataReader
     }
 
     /// <summary>
-    /// For DML statements: reads the <c>num_affected_rows</c> result if present, else -1.
+    /// For DML statements: reads the <c>num_affected_rows</c> result column if present, else -1.
     /// </summary>
     internal async Task<int> GetAffectedRowCountAsync(CancellationToken cancellationToken)
     {
-        if (_columns.Length == 1
-            && string.Equals(_columns[0].Name, "num_affected_rows", StringComparison.OrdinalIgnoreCase)
-            && await ReadAsync(cancellationToken).ConfigureAwait(false)
-            && !IsDBNull(0))
+        var ordinal = -1;
+        for (var i = 0; i < _columns.Length; i++)
         {
-            return (int)GetInt64(0);
+            if (string.Equals(_columns[i].Name, "num_affected_rows", StringComparison.OrdinalIgnoreCase))
+            {
+                ordinal = i;
+                break;
+            }
+        }
+
+        if (ordinal >= 0
+            && await ReadAsync(cancellationToken).ConfigureAwait(false)
+            && !IsDBNull(ordinal))
+        {
+            return (int)GetInt64(ordinal);
         }
 
         return -1;

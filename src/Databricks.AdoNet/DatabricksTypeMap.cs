@@ -95,9 +95,136 @@ internal static class DatabricksTypeMap
             TimestampArray a => a.GetTimestamp(index)!.Value.UtcDateTime,
             StringArray a => a.GetString(index),
             BinaryArray a => a.GetBytes(index).ToArray(),
+            // The Statement Execution API delivers ARRAY/MAP/STRUCT as genuine Arrow nested
+            // arrays; v1 surfaces them as JSON strings per the type-mapping spec.
+            ListArray or StructArray => SerializeNestedToJson(array, index),
             _ => throw new NotSupportedException(
                 $"Arrow array type '{array.GetType().Name}' (column '{column.Name}', " +
                 $"type '{column.TypeText ?? column.TypeName}') is not supported."),
         };
     }
+
+    private static string SerializeNestedToJson(IArrowArray array, int index)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new System.Text.Json.Utf8JsonWriter(stream))
+        {
+            WriteArrowJsonValue(writer, array, index);
+        }
+
+        return System.Text.Encoding.UTF8.GetString(stream.ToArray());
+    }
+
+    private static void WriteArrowJsonValue(System.Text.Json.Utf8JsonWriter writer, IArrowArray array, int index)
+    {
+        if (array.IsNull(index))
+        {
+            writer.WriteNullValue();
+            return;
+        }
+
+        switch (array)
+        {
+            case BooleanArray a:
+                writer.WriteBooleanValue(a.GetValue(index)!.Value);
+                break;
+            case Int8Array a:
+                writer.WriteNumberValue(a.GetValue(index)!.Value);
+                break;
+            case Int16Array a:
+                writer.WriteNumberValue(a.GetValue(index)!.Value);
+                break;
+            case Int32Array a:
+                writer.WriteNumberValue(a.GetValue(index)!.Value);
+                break;
+            case Int64Array a:
+                writer.WriteNumberValue(a.GetValue(index)!.Value);
+                break;
+            case FloatArray a:
+                writer.WriteNumberValue(a.GetValue(index)!.Value);
+                break;
+            case DoubleArray a:
+                writer.WriteNumberValue(a.GetValue(index)!.Value);
+                break;
+            case Decimal128Array a:
+                writer.WriteRawValue(a.GetString(index), skipInputValidation: false);
+                break;
+            case Date32Array a:
+                writer.WriteStringValue(a.GetDateOnly(index)!.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+                break;
+            case TimestampArray a:
+                writer.WriteStringValue(a.GetTimestamp(index)!.Value.UtcDateTime.ToString("O", CultureInfo.InvariantCulture));
+                break;
+            case StringArray a:
+                writer.WriteStringValue(a.GetString(index));
+                break;
+            case BinaryArray a:
+                writer.WriteBase64StringValue(a.GetBytes(index));
+                break;
+            // MapArray derives from ListArray; match it first.
+            case MapArray m:
+            {
+                var start = m.ValueOffsets[index];
+                var end = m.ValueOffsets[index + 1];
+                var entries = (StructArray)m.Values;
+                var keys = entries.Fields[0];
+                var values = entries.Fields[1];
+                writer.WriteStartObject();
+                for (var i = start; i < end; i++)
+                {
+                    writer.WritePropertyName(GetJsonPropertyName(keys, i));
+                    WriteArrowJsonValue(writer, values, i);
+                }
+
+                writer.WriteEndObject();
+                break;
+            }
+
+            case ListArray l:
+            {
+                var start = l.ValueOffsets[index];
+                var end = l.ValueOffsets[index + 1];
+                writer.WriteStartArray();
+                for (var i = start; i < end; i++)
+                {
+                    WriteArrowJsonValue(writer, l.Values, i);
+                }
+
+                writer.WriteEndArray();
+                break;
+            }
+
+            case StructArray s:
+            {
+                // Struct children are not offset-adjusted by arrow-dotnet; apply parent offset.
+                var childIndex = index + s.Offset;
+                var fields = ((Apache.Arrow.Types.StructType)s.Data.DataType).Fields;
+                writer.WriteStartObject();
+                for (var i = 0; i < fields.Count; i++)
+                {
+                    writer.WritePropertyName(fields[i].Name);
+                    WriteArrowJsonValue(writer, s.Fields[i], childIndex);
+                }
+
+                writer.WriteEndObject();
+                break;
+            }
+
+            default:
+                writer.WriteStringValue(array.GetType().Name);
+                break;
+        }
+    }
+
+    private static string GetJsonPropertyName(IArrowArray keys, int index) => keys switch
+    {
+        StringArray a => a.GetString(index),
+        Int8Array a => a.GetValue(index)!.Value.ToString(CultureInfo.InvariantCulture),
+        Int16Array a => a.GetValue(index)!.Value.ToString(CultureInfo.InvariantCulture),
+        Int32Array a => a.GetValue(index)!.Value.ToString(CultureInfo.InvariantCulture),
+        Int64Array a => a.GetValue(index)!.Value.ToString(CultureInfo.InvariantCulture),
+        _ => Convert.ToString(
+                keys is BooleanArray b ? b.GetValue(index) : "key", CultureInfo.InvariantCulture)
+            ?? "key",
+    };
 }
