@@ -32,14 +32,7 @@ public static class DatabricksConnectionThriftExtensions
         DatabricksConnection connection, IReadOnlyDictionary<string, string>? driverOptions)
     {
         var settings = connection.Settings;
-
-        // An explicit HttpPath is passed through verbatim — this is how all-purpose
-        // cluster endpoints (/sql/protocolv1/o/<org-id>/<cluster-id>) are reached,
-        // since only the Thrift protocol supports them. Otherwise derive the SQL
-        // warehouse path from the warehouse id.
-        var httpPath = settings.HttpPath.Length > 0
-            ? settings.HttpPath
-            : $"/sql/1.0/warehouses/{settings.EffectiveWarehouseId}";
+        var httpPath = ResolveHttpPath(settings.HttpPath, settings.EffectiveWarehouseId);
 
         var options = new ThriftTransportOptions
         {
@@ -52,4 +45,16 @@ public static class DatabricksConnectionThriftExtensions
 
         return new ThriftStatementTransport(settings.Host, httpPath, options);
     }
+
+    /// <summary>
+    /// An explicit HttpPath is used directly — this is how all-purpose cluster endpoints
+    /// (<c>/sql/protocolv1/o/&lt;org-id&gt;/&lt;cluster-id&gt;</c>) are reached, since only the
+    /// Thrift protocol supports them. It is normalized to a leading '/' (cluster-path
+    /// detection tolerates its absence, but the driver needs a valid absolute URL path).
+    /// Otherwise the SQL warehouse path is derived from the warehouse id.
+    /// </summary>
+    internal static string ResolveHttpPath(string httpPath, string effectiveWarehouseId)
+        => httpPath.Length > 0
+            ? (httpPath.StartsWith('/') ? httpPath : "/" + httpPath)
+            : $"/sql/1.0/warehouses/{effectiveWarehouseId}";
 }

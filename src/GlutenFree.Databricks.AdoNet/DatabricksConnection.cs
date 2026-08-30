@@ -280,7 +280,9 @@ public sealed class DatabricksConnection : DbConnection
 
     private RestStatementTransport CreateRestTransport()
     {
-        if (_builder.IsAllPurposeClusterPath)
+        // Only reject when the cluster path is the sole endpoint: an explicit WarehouseId
+        // wins over HttpPath (documented precedence), so Validate() and Open() agree.
+        if (_builder.IsAllPurposeClusterPath && _builder.EffectiveWarehouseId.Length == 0)
         {
             throw new NotSupportedException(
                 "The HttpPath points at an all-purpose cluster, which only speaks the Thrift protocol. "

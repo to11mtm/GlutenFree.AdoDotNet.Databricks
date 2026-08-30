@@ -127,6 +127,29 @@ public class DatabricksConnectionStringBuilderTests
     }
 
     [Fact]
+    public void Explicit_warehouse_id_beats_cluster_path_on_rest_transport()
+    {
+        // Documented precedence: WarehouseId wins over HttpPath, so the REST transport
+        // must not reject the connection just because a cluster path is also present.
+        // (Open fails later on network/auth, not with the cluster NotSupportedException.)
+        using var connection = new DatabricksConnection(
+            "Host=https://localhost:1;WarehouseId=w123;HttpPath=/sql/protocolv1/o/12345/6789-cluster;Token=t;ConnectTimeout=1");
+
+        try
+        {
+            connection.Open();
+        }
+        catch (NotSupportedException)
+        {
+            Assert.Fail("REST transport rejected a cluster HttpPath despite an explicit WarehouseId.");
+        }
+        catch
+        {
+            // Expected: unreachable host / auth failure — precedence honored.
+        }
+    }
+
+    [Fact]
     public void ToDisplayString_redacts_secrets()
     {
         var b = new DatabricksConnectionStringBuilder(ValidPat + ";ClientSecret=shh");
