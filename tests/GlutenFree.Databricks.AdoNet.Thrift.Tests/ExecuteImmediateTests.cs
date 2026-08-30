@@ -36,10 +36,13 @@ public class ExecuteImmediateTests
         Assert.Equal("EXECUTE IMMEDIATE 'SELECT :v' USING CAST(NULL AS INT) AS v", sql);
     }
 
-    [Fact]
-    public void Missing_type_defaults_to_string()
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Missing_or_blank_type_defaults_to_string(string? typeName)
     {
-        var sql = Build("SELECT :v", new StatementParameter { Name = "v", Value = "x" });
+        var sql = Build("SELECT :v", new StatementParameter { Name = "v", Value = "x", Type = typeName });
 
         Assert.Equal("EXECUTE IMMEDIATE 'SELECT :v' USING CAST('x' AS STRING) AS v", sql);
     }

@@ -23,8 +23,10 @@
   </Folder>
   <Folder Name="/_/">
     <File Path=".editorconfig" />
+    <File Path="Directory.Build.props" />
     <File Path="LICENSE" />
     <File Path="README.kawaii.md" />
     <File Path="README.md" />
+    <File Path="THIRD-PARTY-NOTICES.md" />
   </Folder>
 </Solution>

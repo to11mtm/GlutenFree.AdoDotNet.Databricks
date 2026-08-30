@@ -5,8 +5,11 @@ using System.Text;
 namespace GlutenFree.Databricks.AdoNet.Linq2Db.Internal;
 
 /// <summary>
-/// Adapted from linq2db's LinqToDB.Internal.Common.StringBuilderExtensions (MIT licensed):
+/// Adapted from linq2db's LinqToDB.Internal.Common.StringBuilderExtensions:
 /// https://github.com/linq2db/linq2db/blob/master/Source/LinqToDB/Internal/Common/StringBuilderExtensions.cs
+/// Copyright (c) Igor Tkachev, Ilya Chudin, Svyatoslav Danyliv, Dmitry Lukashenko, and others.
+/// Used under the MIT license; the full license text is in THIRD-PARTY-NOTICES.md at the
+/// repository root (also shipped in this NuGet package).
 /// </summary>
 internal static class StringBuilderExtensions
 {

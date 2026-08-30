@@ -54,6 +54,14 @@ public sealed class ThriftStatementTransport : IDatabricksTransport
 
         if (options.Token is { Length: > 0 } token)
         {
+            if (options.OAuthClientId is { Length: > 0 } || options.OAuthClientSecret is { Length: > 0 })
+            {
+                throw new ArgumentException(
+                    "Provide exactly one credential form: a personal access token or an OAuth "
+                    + "client id/secret pair, not both.",
+                    nameof(options));
+            }
+
             properties[SparkParameters.AuthType] = SparkAuthTypeConstants.Token;
             properties[SparkParameters.Token] = token;
         }
@@ -149,7 +157,10 @@ public sealed class ThriftStatementTransport : IDatabricksTransport
 
             var result = statement.ExecuteQuery();
             cancellationToken.ThrowIfCancellationRequested();
-            return BuildResponseAsync(statementId, statement, result, CancellationToken.None)
+            // Blocking on the async path here is acceptable: the initial batch peek is a
+            // short read, and passing the real token keeps sync cancellation behavior
+            // consistent with ExecuteStatementAsync.
+            return BuildResponseAsync(statementId, statement, result, cancellationToken)
                 .GetAwaiter().GetResult();
         }
         catch (Exception ex)
@@ -327,7 +338,7 @@ public sealed class ThriftStatementTransport : IDatabricksTransport
                     $"Parameter name '{name}' is not a valid identifier (letters, digits and underscores only).");
             }
 
-            var typeName = parameter.Type ?? "STRING";
+            var typeName = string.IsNullOrWhiteSpace(parameter.Type) ? "STRING" : parameter.Type;
             if (!IsValidTypeName(typeName))
             {
                 throw new DatabricksException($"Parameter '{name}' has an unsupported type name '{typeName}'.");
@@ -537,10 +548,18 @@ public sealed class ThriftStatementTransport : IDatabricksTransport
 
         public void Dispose()
         {
-            _firstBatch?.Dispose();
-            _firstBatch = null;
-            _inner.Dispose();
-            Interlocked.Exchange(ref _onDispose, null)?.Invoke();
+            try
+            {
+                _firstBatch?.Dispose();
+                _firstBatch = null;
+                _inner.Dispose();
+            }
+            finally
+            {
+                // Release the backing AdbcStatement exactly once, even if the inner
+                // stream's disposal throws.
+                Interlocked.Exchange(ref _onDispose, null)?.Invoke();
+            }
         }
     }
 }
