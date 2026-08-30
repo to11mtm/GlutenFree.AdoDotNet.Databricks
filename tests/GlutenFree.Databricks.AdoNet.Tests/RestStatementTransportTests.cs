@@ -126,7 +126,7 @@ public class RestStatementTransportTests
         var handler = new FakeHttpHandler();
         for (var i = 0; i < 3; i++)
         {
-            handler.Enqueue(HttpStatusCode.ServiceUnavailable, """{"error_code":"TEMPORARILY_UNAVAILABLE"}""");
+            handler.Enqueue(HttpStatusCode.TooManyRequests, """{"error_code":"RESOURCE_EXHAUSTED"}""");
         }
 
         await using var transport = CreateTransport(handler, maxRetries: 2);
@@ -134,9 +134,45 @@ public class RestStatementTransportTests
         var ex = await Assert.ThrowsAsync<DatabricksException>(
             () => transport.ExecuteStatementAsync(CreateRequest(), TimeSpan.Zero, CancellationToken.None));
 
-        Assert.Equal(503, ex.StatusCode);
-        Assert.Equal("TEMPORARILY_UNAVAILABLE", ex.DatabricksErrorCode);
+        Assert.Equal(429, ex.StatusCode);
+        Assert.Equal("RESOURCE_EXHAUSTED", ex.DatabricksErrorCode);
         Assert.Equal(3, handler.Requests.Count);
+    }
+
+    [Fact]
+    public async Task Execute_does_not_retry_submission_on_503()
+    {
+        // A 503 can be returned after the server accepted the POST; transparently
+        // resending the statement could execute DML twice, so submission must fail fast.
+        var handler = new FakeHttpHandler()
+            .Enqueue(HttpStatusCode.ServiceUnavailable, """{"error_code":"TEMPORARILY_UNAVAILABLE"}""")
+            .Enqueue(HttpStatusCode.OK, SucceededResponse);
+        await using var transport = CreateTransport(handler);
+
+        var ex = await Assert.ThrowsAsync<DatabricksException>(
+            () => transport.ExecuteStatementAsync(CreateRequest(), TimeSpan.Zero, CancellationToken.None));
+
+        Assert.Equal(503, ex.StatusCode);
+        Assert.Single(handler.Requests);
+    }
+
+    [Fact]
+    public async Task Execute_retries_status_poll_on_503()
+    {
+        // Polling GETs are idempotent, so 503s there stay transparently retryable.
+        var handler = new FakeHttpHandler()
+            .Enqueue(HttpStatusCode.OK, """{"statement_id":"stmt-1","status":{"state":"PENDING"}}""")
+            .Enqueue(HttpStatusCode.ServiceUnavailable, """{"error_code":"TEMPORARILY_UNAVAILABLE"}""")
+            .Enqueue(HttpStatusCode.OK, SucceededResponse);
+        await using var transport = CreateTransport(handler);
+
+        var response = await transport.ExecuteStatementAsync(
+            CreateRequest(), TimeSpan.Zero, CancellationToken.None);
+
+        Assert.Equal("SUCCEEDED", response.Status!.State);
+        Assert.Equal(3, handler.Requests.Count);
+        Assert.Equal(HttpMethod.Get, handler.Requests[1].Request.Method);
+        Assert.Equal(HttpMethod.Get, handler.Requests[2].Request.Method);
     }
 
     [Fact]

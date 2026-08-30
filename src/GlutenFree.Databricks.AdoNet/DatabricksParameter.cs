@@ -195,7 +195,9 @@ public sealed class DatabricksParameter : DbParameter
 
     private static (string, string) FormatDatabricksDecimal(DatabricksDecimal value)
     {
-        var precision = Math.Max(value.Precision, value.Scale + 1);
+        // SQL precision need only cover max(unscaled digit count, scale):
+        // e.g. 0.5 (unscaled 5, scale 1) is DECIMAL(1,1) and 38 fractional digits fit DECIMAL(38,38).
+        var precision = Math.Max(value.Precision, value.Scale);
         if (precision > 38)
         {
             // Fail locally and deterministically instead of letting the server reject DECIMAL(39+, ...).
@@ -213,9 +215,14 @@ public sealed class DatabricksParameter : DbParameter
         // decimal.Scale (available since .NET 7) matches that rendered scale.
         var text = value.ToString(CultureInfo.InvariantCulture);
         var scale = value.Scale;
-        var precision = text.Count(char.IsAsciiDigit);
-        // Precision must at least cover the digits present.
-        return (text, $"DECIMAL({Math.Max(precision, 1)},{scale})");
+        // Precision is the unscaled digit count — cosmetic leading zeros ("0.001") don't count,
+        // otherwise a scale-28 decimal below one would be overstated as DECIMAL(29,28) and the
+        // reader would surface the round-tripped value as SqlDecimal instead of decimal.
+        var significantDigits = text
+            .SkipWhile(c => !char.IsAsciiDigit(c) || c == '0')
+            .Count(char.IsAsciiDigit);
+        var precision = Math.Max(Math.Max(significantDigits, scale), 1);
+        return (text, $"DECIMAL({precision},{scale})");
     }
 
     private string? DbTypeToDatabricksType() => DbType switch

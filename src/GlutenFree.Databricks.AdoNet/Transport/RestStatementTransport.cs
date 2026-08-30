@@ -88,12 +88,16 @@ public sealed class RestStatementTransport : IDatabricksTransport, IDisposable
         StatementResponse response;
         try
         {
+            // Submission is not idempotent: a 503 can arrive after the server accepted the
+            // POST, so transparently resending could execute DML twice (idempotent: false
+            // restricts retries to 429, which is rejected before execution).
             response = await SendJsonAsync<StatementResponse>(
                     () => new HttpRequestMessage(HttpMethod.Post, new Uri(_baseUri, "/api/2.0/sql/statements"))
                     {
                         Content = JsonContent.Create(submitRequest, options: s_jsonOptions),
                     },
-                    token)
+                    token,
+                    idempotent: false)
                 .ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (timeoutCts?.IsCancellationRequested == true)
@@ -189,12 +193,14 @@ public sealed class RestStatementTransport : IDatabricksTransport, IDisposable
         StatementResponse response;
         try
         {
+            // Submission is not idempotent — see the async path for why 503 is not retried.
             response = SendJson<StatementResponse>(
                 () => new HttpRequestMessage(HttpMethod.Post, new Uri(_baseUri, "/api/2.0/sql/statements"))
                 {
                     Content = JsonContent.Create(submitRequest, options: s_jsonOptions),
                 },
-                token);
+                token,
+                idempotent: false);
         }
         catch (OperationCanceledException) when (timeoutCts?.IsCancellationRequested == true)
         {
@@ -366,10 +372,11 @@ public sealed class RestStatementTransport : IDatabricksTransport, IDisposable
             },
         };
 
-    private T SendJson<T>(Func<HttpRequestMessage> requestFactory, CancellationToken cancellationToken)
+    private T SendJson<T>(
+        Func<HttpRequestMessage> requestFactory, CancellationToken cancellationToken, bool idempotent = true)
     {
         using var request = requestFactory();
-        using var response = SendWithRetry(request, authenticate: true, cancellationToken);
+        using var response = SendWithRetry(request, authenticate: true, cancellationToken, idempotent);
         using var bodyReader = new StreamReader(response.Content.ReadAsStream(cancellationToken));
         var body = bodyReader.ReadToEnd();
 
@@ -383,7 +390,7 @@ public sealed class RestStatementTransport : IDatabricksTransport, IDisposable
     }
 
     private HttpResponseMessage SendWithRetry(
-        HttpRequestMessage request, bool authenticate, CancellationToken cancellationToken)
+        HttpRequestMessage request, bool authenticate, CancellationToken cancellationToken, bool idempotent = true)
     {
         // Buffer the content up front and swap in a re-readable ByteArrayContent: after a
         // send, one-shot content streams are consumed and cannot be re-read for retry clones.
@@ -406,50 +413,67 @@ public sealed class RestStatementTransport : IDatabricksTransport, IDisposable
             request.Content = buffered;
         }
 
-        for (var attempt = 0; ; attempt++)
+        // The caller owns (and disposes) the original request; this loop owns any clones it
+        // creates, so the active clone is disposed in the finally block (safe even when its
+        // response is returned — disposing a request message does not affect the response).
+        var original = request;
+        try
         {
-            if (authenticate)
+            for (var attempt = 0; ; attempt++)
             {
-                var token = _authenticator.GetToken(cancellationToken);
-                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            }
+                if (authenticate)
+                {
+                    var token = _authenticator.GetToken(cancellationToken);
+                    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                }
 
-            // Genuinely synchronous I/O: no sync-over-async blocking.
-            var response = _httpClient.Send(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+                // Genuinely synchronous I/O: no sync-over-async blocking.
+                var response = _httpClient.Send(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
 
-            if (response.StatusCode is not (HttpStatusCode.TooManyRequests or HttpStatusCode.ServiceUnavailable)
-                || attempt >= _maxRetries)
-            {
-                return response;
-            }
+                if (!IsRetryable(response.StatusCode, idempotent) || attempt >= _maxRetries)
+                {
+                    return response;
+                }
 
-            var delay = GetRetryDelay(response, attempt);
-            _logger.LogDebug(
-                "Retrying request to {Uri} after {Delay} (attempt {Attempt}/{MaxRetries}, status {Status}).",
-                request.RequestUri, delay, attempt + 1, _maxRetries, (int)response.StatusCode);
-            response.Dispose();
+                var delay = GetRetryDelay(response, attempt);
+                _logger.LogDebug(
+                    "Retrying request to {Uri} after {Delay} (attempt {Attempt}/{MaxRetries}, status {Status}).",
+                    request.RequestUri, delay, attempt + 1, _maxRetries, (int)response.StatusCode);
+                response.Dispose();
 
-            cancellationToken.ThrowIfCancellationRequested();
-            // Cancellation-aware synchronous wait: Cancel()/CommandTimeout must not be
-            // forced to sit out a server-provided retry delay.
-            if (cancellationToken.WaitHandle.WaitOne(delay))
-            {
                 cancellationToken.ThrowIfCancellationRequested();
-            }
+                // Cancellation-aware synchronous wait: Cancel()/CommandTimeout must not be
+                // forced to sit out a server-provided retry delay.
+                if (cancellationToken.WaitHandle.WaitOne(delay))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                }
 
-            // HttpRequestMessage instances cannot be resent; clone for the retry
-            // (synchronously — this is the genuinely-sync pipeline).
-            var clone = CloneRequest(request, contentBytes);
-            request.Dispose();
-            request = clone;
+                // HttpRequestMessage instances cannot be resent; clone for the retry
+                // (synchronously — this is the genuinely-sync pipeline).
+                var clone = CloneRequest(request, contentBytes);
+                if (!ReferenceEquals(request, original))
+                {
+                    request.Dispose();
+                }
+
+                request = clone;
+            }
+        }
+        finally
+        {
+            if (!ReferenceEquals(request, original))
+            {
+                request.Dispose();
+            }
         }
     }
 
     private async Task<T> SendJsonAsync<T>(
-        Func<HttpRequestMessage> requestFactory, CancellationToken cancellationToken)
+        Func<HttpRequestMessage> requestFactory, CancellationToken cancellationToken, bool idempotent = true)
     {
         using var request = requestFactory();
-        using var response = await SendWithRetryAsync(request, authenticate: true, cancellationToken)
+        using var response = await SendWithRetryAsync(request, authenticate: true, cancellationToken, idempotent)
             .ConfigureAwait(false);
         var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
 
@@ -463,43 +487,68 @@ public sealed class RestStatementTransport : IDatabricksTransport, IDisposable
     }
 
     private async Task<HttpResponseMessage> SendWithRetryAsync(
-        HttpRequestMessage request, bool authenticate, CancellationToken cancellationToken)
+        HttpRequestMessage request, bool authenticate, CancellationToken cancellationToken, bool idempotent = true)
     {
-        for (var attempt = 0; ; attempt++)
+        // Ownership mirrors the sync path: the caller disposes the original request, the loop
+        // disposes any clones it creates (including the final one, in the finally block).
+        var original = request;
+        try
         {
-            if (authenticate)
+            for (var attempt = 0; ; attempt++)
             {
-                var token = await _authenticator.GetTokenAsync(cancellationToken).ConfigureAwait(false);
-                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                if (authenticate)
+                {
+                    var token = await _authenticator.GetTokenAsync(cancellationToken).ConfigureAwait(false);
+                    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                }
+
+                var response = await _httpClient.SendAsync(
+                        request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+                    .ConfigureAwait(false);
+
+                if (!IsRetryable(response.StatusCode, idempotent) || attempt >= _maxRetries)
+                {
+                    return response;
+                }
+
+                var delay = GetRetryDelay(response, attempt);
+                _logger.LogDebug(
+                    "Retrying request to {Uri} after {Delay} (attempt {Attempt}/{MaxRetries}, status {Status}).",
+                    request.RequestUri, delay, attempt + 1, _maxRetries, (int)response.StatusCode);
+                response.Dispose();
+
+                await Task.Delay(delay, _timeProvider, cancellationToken).ConfigureAwait(false);
+
+                // HttpRequestMessage instances cannot be resent; clone for the retry.
+                var contentBytes = request.Content is null
+                    ? null
+                    : await request.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
+                var clone = CloneRequest(request, contentBytes);
+                if (!ReferenceEquals(request, original))
+                {
+                    request.Dispose();
+                }
+
+                request = clone;
             }
-
-            var response = await _httpClient.SendAsync(
-                    request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
-                .ConfigureAwait(false);
-
-            if (response.StatusCode is not (HttpStatusCode.TooManyRequests or HttpStatusCode.ServiceUnavailable)
-                || attempt >= _maxRetries)
+        }
+        finally
+        {
+            if (!ReferenceEquals(request, original))
             {
-                return response;
+                request.Dispose();
             }
-
-            var delay = GetRetryDelay(response, attempt);
-            _logger.LogDebug(
-                "Retrying request to {Uri} after {Delay} (attempt {Attempt}/{MaxRetries}, status {Status}).",
-                request.RequestUri, delay, attempt + 1, _maxRetries, (int)response.StatusCode);
-            response.Dispose();
-
-            await Task.Delay(delay, _timeProvider, cancellationToken).ConfigureAwait(false);
-
-            // HttpRequestMessage instances cannot be resent; clone for the retry.
-            var contentBytes = request.Content is null
-                ? null
-                : await request.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
-            var clone = CloneRequest(request, contentBytes);
-            request.Dispose();
-            request = clone;
         }
     }
+
+    /// <summary>
+    /// 429 is always retryable (rate limiting rejects the request before it executes).
+    /// 503 is only retried for idempotent requests: it can be returned after the server has
+    /// already accepted the work, so resending a statement submission could execute DML twice.
+    /// </summary>
+    private static bool IsRetryable(HttpStatusCode statusCode, bool idempotent)
+        => statusCode == HttpStatusCode.TooManyRequests
+            || (idempotent && statusCode == HttpStatusCode.ServiceUnavailable);
 
     /// <summary>
     /// Resolves the retry delay: honors <c>Retry-After</c> in both delta-seconds and

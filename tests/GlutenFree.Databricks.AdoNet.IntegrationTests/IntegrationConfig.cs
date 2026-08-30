@@ -69,12 +69,20 @@ public static class IntegrationConfig
     }
 
     /// <summary>
-    /// Drops legacy throwaway <c>adonet_*</c> schemas left behind by the old per-run schema
-    /// pattern (aborted runs skipped cleanup). Fixed versioned schemas use the
-    /// <c>adodotnet_*</c> prefix and are intentionally not matched. Runs once per process.
+    /// Drops legacy throwaway <c>adonet_&lt;name&gt;_&lt;hex run token&gt;</c> schemas left behind
+    /// by the old per-run schema pattern (aborted runs skipped cleanup). Destructive, so it is
+    /// double-gated: it only runs when <c>DATABRICKS_SWEEP_LEGACY_SCHEMAS=1</c> is explicitly
+    /// set, and only drops schemas matching the exact legacy per-run shape (never fixed
+    /// <c>adodotnet_*</c> schemas or other <c>adonet_</c>-prefixed names in a shared workspace).
+    /// Runs once per process.
     /// </summary>
     public static async Task SweepStaleSchemasAsync(DatabricksConnection connection)
     {
+        if (Get("DATABRICKS_SWEEP_LEGACY_SCHEMAS") != "1")
+        {
+            return;
+        }
+
         if (Interlocked.Exchange(ref s_swept, 1) == 1)
         {
             return;
@@ -88,7 +96,13 @@ public static class IntegrationConfig
             await using var reader = await list.ExecuteReaderAsync();
             while (await reader.ReadAsync())
             {
-                stale.Add(reader.GetString(0));
+                var name = reader.GetString(0);
+                // Legacy per-run schemas were adonet_<tag>_<guid:N> or
+                // adonet_<hexSeconds>_<tag>_<guid:N>; the trailing 32-hex GUID is required.
+                if (System.Text.RegularExpressions.Regex.IsMatch(name, "^adonet_[a-z0-9_]+_[0-9a-f]{32}$"))
+                {
+                    stale.Add(name);
+                }
             }
         }
 

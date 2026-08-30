@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -19,11 +20,11 @@ public sealed class OAuthM2MAuthenticator : IDatabricksAuthenticator, IDisposabl
     private readonly TimeProvider _timeProvider;
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
 
-    private string? _cachedToken;
+    // Immutable token+expiry snapshot published through a single volatile reference so the
+    // lock-free fast path can never pair an old token with a newly written expiry (or vice versa).
+    private CachedToken? _cached;
 
-    // UTC ticks; read/written atomically (long + Volatile) so the lock-free fast path
-    // never sees a torn DateTimeOffset value.
-    private long _expiresAtTicks = long.MinValue;
+    private sealed record CachedToken(string Token, long ExpiresAtTicks);
 
     /// <summary>
     /// Creates an authenticator for the given workspace host and service principal credentials.
@@ -60,25 +61,24 @@ public sealed class OAuthM2MAuthenticator : IDatabricksAuthenticator, IDisposabl
     /// <inheritdoc />
     public async ValueTask<string> GetTokenAsync(CancellationToken cancellationToken = default)
     {
-        var cached = Volatile.Read(ref _cachedToken);
-        if (cached is not null && IsTokenValid)
+        var cached = Volatile.Read(ref _cached);
+        if (IsValid(cached))
         {
-            return cached;
+            return cached.Token;
         }
 
         await _refreshLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             // Another caller may have refreshed while we waited.
-            cached = _cachedToken;
-            if (cached is not null && IsTokenValid)
+            cached = Volatile.Read(ref _cached);
+            if (IsValid(cached))
             {
-                return cached;
+                return cached.Token;
             }
 
             var (token, expiresIn) = await RequestTokenAsync(cancellationToken).ConfigureAwait(false);
-            SetExpiry(expiresIn);
-            Volatile.Write(ref _cachedToken, token);
+            Publish(token, expiresIn);
             return token;
         }
         finally
@@ -90,19 +90,19 @@ public sealed class OAuthM2MAuthenticator : IDatabricksAuthenticator, IDisposabl
     /// <inheritdoc />
     public string GetToken(CancellationToken cancellationToken = default)
     {
-        var cached = Volatile.Read(ref _cachedToken);
-        if (cached is not null && IsTokenValid)
+        var cached = Volatile.Read(ref _cached);
+        if (IsValid(cached))
         {
-            return cached;
+            return cached.Token;
         }
 
         _refreshLock.Wait(cancellationToken);
         try
         {
-            cached = _cachedToken;
-            if (cached is not null && IsTokenValid)
+            cached = Volatile.Read(ref _cached);
+            if (IsValid(cached))
             {
-                return cached;
+                return cached.Token;
             }
 
             using var request = CreateTokenRequest();
@@ -111,8 +111,7 @@ public sealed class OAuthM2MAuthenticator : IDatabricksAuthenticator, IDisposabl
             using var bodyReader = new StreamReader(response.Content.ReadAsStream(cancellationToken));
             var (token, expiresIn) = ParseTokenResponse(response, bodyReader.ReadToEnd());
 
-            SetExpiry(expiresIn);
-            Volatile.Write(ref _cachedToken, token);
+            Publish(token, expiresIn);
             return token;
         }
         finally
@@ -121,11 +120,13 @@ public sealed class OAuthM2MAuthenticator : IDatabricksAuthenticator, IDisposabl
         }
     }
 
-    private bool IsTokenValid
-        => _timeProvider.GetUtcNow().UtcTicks < Volatile.Read(ref _expiresAtTicks);
+    private bool IsValid([NotNullWhen(true)] CachedToken? cached)
+        => cached is not null && _timeProvider.GetUtcNow().UtcTicks < cached.ExpiresAtTicks;
 
-    private void SetExpiry(TimeSpan expiresIn)
-        => Volatile.Write(ref _expiresAtTicks, (_timeProvider.GetUtcNow() + expiresIn - s_expiryMargin).UtcTicks);
+    private void Publish(string token, TimeSpan expiresIn)
+        => Volatile.Write(
+            ref _cached,
+            new CachedToken(token, (_timeProvider.GetUtcNow() + expiresIn - s_expiryMargin).UtcTicks));
 
     private async Task<(string Token, TimeSpan ExpiresIn)> RequestTokenAsync(CancellationToken cancellationToken)
     {

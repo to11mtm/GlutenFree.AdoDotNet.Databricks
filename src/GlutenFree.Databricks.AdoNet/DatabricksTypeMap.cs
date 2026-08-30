@@ -137,13 +137,17 @@ internal static class DatabricksTypeMap
     /// <summary>Renders a day-time interval in Databricks literal form, e.g. <c>5 04:03:02.100000000</c>.</summary>
     private static string FormatDayTimeInterval(int days, long nanoseconds)
     {
-        var total = TimeSpan.FromDays(days) + TimeSpan.FromTicks(nanoseconds / 100);
-        var sign = total < TimeSpan.Zero ? "-" : string.Empty;
-        var t = total.Duration();
-        var subSecondNanos = (nanoseconds % 1_000_000_000L + 1_000_000_000L) % 1_000_000_000L;
+        // Derive day/time and the fractional remainder from one signed total (Int128 so
+        // extreme day counts cannot overflow) — normalizing the fraction independently of
+        // the sign would render -0.1s as "-0 00:00:00.900000000" instead of ".100000000".
+        var totalNanos = (Int128)days * 86_400_000_000_000L + nanoseconds;
+        var sign = totalNanos < 0 ? "-" : string.Empty;
+        var abs = totalNanos < 0 ? -totalNanos : totalNanos;
+        var subSecondNanos = (long)(abs % 1_000_000_000L);
+        var totalSeconds = (long)(abs / 1_000_000_000L);
         return string.Create(
             CultureInfo.InvariantCulture,
-            $"{sign}{(int)t.TotalDays} {t.Hours:00}:{t.Minutes:00}:{t.Seconds:00}.{subSecondNanos:000000000}");
+            $"{sign}{totalSeconds / 86_400} {totalSeconds / 3_600 % 24:00}:{totalSeconds / 60 % 60:00}:{totalSeconds % 60:00}.{subSecondNanos:000000000}");
     }
 
     private static string FormatMonthDayNanoInterval(Apache.Arrow.Scalars.MonthDayNanosecondInterval value)
@@ -309,15 +313,26 @@ internal static class DatabricksTypeMap
         }
     }
 
+    /// <summary>
+    /// Renders a MAP key as a JSON property name. Each supported atomic key type is handled
+    /// explicitly; anything else throws rather than fabricating a name (which would lose keys
+    /// and collapse entries into duplicate properties).
+    /// </summary>
     private static string GetJsonPropertyName(IArrowArray keys, int index) => keys switch
     {
         StringArray a => a.GetString(index),
+        BooleanArray a => a.GetValue(index)!.Value ? "true" : "false",
         Int8Array a => a.GetValue(index)!.Value.ToString(CultureInfo.InvariantCulture),
         Int16Array a => a.GetValue(index)!.Value.ToString(CultureInfo.InvariantCulture),
         Int32Array a => a.GetValue(index)!.Value.ToString(CultureInfo.InvariantCulture),
         Int64Array a => a.GetValue(index)!.Value.ToString(CultureInfo.InvariantCulture),
-        _ => Convert.ToString(
-                keys is BooleanArray b ? b.GetValue(index) : "key", CultureInfo.InvariantCulture)
-            ?? "key",
+        FloatArray a => a.GetValue(index)!.Value.ToString("R", CultureInfo.InvariantCulture),
+        DoubleArray a => a.GetValue(index)!.Value.ToString("R", CultureInfo.InvariantCulture),
+        Decimal128Array a => a.GetString(index),
+        Date32Array a => a.GetDateOnly(index)!.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+        Date64Array a => a.GetDateOnly(index)!.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+        TimestampArray a => a.GetTimestamp(index)!.Value.UtcDateTime.ToString("O", CultureInfo.InvariantCulture),
+        _ => throw new NotSupportedException(
+            $"Arrow array type '{keys.GetType().Name}' is not supported as a MAP key."),
     };
 }

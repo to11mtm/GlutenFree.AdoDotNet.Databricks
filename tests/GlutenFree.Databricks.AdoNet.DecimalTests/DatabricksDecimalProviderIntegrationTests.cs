@@ -88,12 +88,25 @@ public class DatabricksDecimalProviderIntegrationTests
     [Fact]
     public void Parameter_handles_small_fraction_precision()
     {
-        // 0.005 has 1 significant digit but needs precision >= scale + 1.
+        // 0.005 has 1 significant digit; precision need only cover the scale (DECIMAL(3,3)
+        // holds any |x| < 1 with three fractional digits).
         var parameter = new DatabricksParameter("p", DatabricksDecimal.Parse("0.005"));
 
         var wire = parameter.ToStatementParameter();
 
         Assert.Equal("0.005", wire.Value);
-        Assert.Equal("DECIMAL(4,3)", wire.Type);
+        Assert.Equal("DECIMAL(3,3)", wire.Type);
+    }
+
+    [Fact]
+    public void Parameter_allows_38_fractional_digits()
+    {
+        // Regression: precision was computed as scale + 1, wrongly rejecting DECIMAL(38,38).
+        var parameter = new DatabricksParameter(
+            "p", DatabricksDecimal.Parse("0.99999999999999999999999999999999999999"));
+
+        var wire = parameter.ToStatementParameter();
+
+        Assert.Equal("DECIMAL(38,38)", wire.Type);
     }
 }

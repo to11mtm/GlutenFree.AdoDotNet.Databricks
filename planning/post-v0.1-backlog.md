@@ -50,6 +50,6 @@ the provider keeps feature parity:**
 
 ## Longer term
 - Thrift/HiveServer2 transport behind `IDatabricksTransport` (all-purpose cluster support,
-  real session pooling).
+  real session pooling). Detailed spec: [thrift-transport-plan.md](thrift-transport-plan.md).
 - EF Core provider (separate project).
 - Bulk ingest via staging/volume APIs (COPY INTO / streaming ingest) instead of multi-row INSERT.

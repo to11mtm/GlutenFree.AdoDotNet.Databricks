@@ -412,6 +412,12 @@ public sealed class DatabricksDataReader : DbDataReader
         _arrowBatch = null;
         _arrowReader?.Dispose();
         _arrowReader = null;
+        // Also release the managed JSON/inline buffers: a closed reader that stays in
+        // scope must not retain an entire result payload.
+        _jsonRows = null;
+        _pendingInline = null;
+        _pendingLinks.Clear();
+        _rowInBlock = -1;
         _connectionToClose?.Close();
     }
 
@@ -436,7 +442,9 @@ public sealed class DatabricksDataReader : DbDataReader
             && await ReadAsync(cancellationToken).ConfigureAwait(false)
             && !IsDBNull(ordinal))
         {
-            return (int)GetInt64(ordinal);
+            // num_affected_rows is a BIGINT; fail explicitly rather than silently wrapping
+            // counts above int.MaxValue (ExecuteNonQuery cannot represent them).
+            return checked((int)GetInt64(ordinal));
         }
 
         return -1;
@@ -448,7 +456,7 @@ public sealed class DatabricksDataReader : DbDataReader
         var ordinal = FindAffectedRowsOrdinal();
         if (ordinal >= 0 && Read() && !IsDBNull(ordinal))
         {
-            return (int)GetInt64(ordinal);
+            return checked((int)GetInt64(ordinal));
         }
 
         return -1;

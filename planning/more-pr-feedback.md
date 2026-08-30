@@ -43,3 +43,40 @@ src/GlutenFree.Databricks.AdoNet/DatabricksTypeMap.cs:95
 8. Arrow TIMESTAMP_NTZ Unspecified kind: already fixed in prior round (verified).
 
 Tests: ReviewHardening2Tests (13 new).
+
+---
+
+## Review round 4 (pullrequestreview-5061422892): ALL RESOLVED (2026-08-30)
+
+1. Non-idempotent submission retries: statement-submission POSTs no longer retry on 503
+   (which can arrive after the server accepted the work � resending could double-execute
+   DML); 429 remains retryable everywhere, 503 remains retryable for idempotent requests
+   (status polls, chunk fetches, downloads, cancel). `IsRetryable(status, idempotent)`.
+2. Retry clone leak (sync + async): SendWithRetry(Async) now tracks the original request
+   (caller-owned) vs clones (loop-owned); the active clone is disposed in a finally block.
+3. OAuth torn read: token + expiry now published as one immutable `CachedToken` snapshot
+   through a single volatile reference � no old-token/new-expiry interleaving.
+4. DatabricksDecimal parameter precision: `max(Precision, Scale)` instead of `Scale + 1`,
+   so DECIMAL(38,38) values (38 fractional digits) are accepted.
+5. decimal parameter precision: cosmetic leading zero excluded, precision =
+   max(significant unscaled digits, scale, 1) � a scale-28 value below one is DECIMAL(28,28),
+   not DECIMAL(29,28) (which would round-trip as SqlDecimal).
+6. Negative sub-second intervals: FormatDayTimeInterval derives day/time/fraction from one
+   signed Int128 total; -0.1s renders as `-0 00:00:00.100000000` (was `.900000000`).
+7. MAP keys: every supported atomic key type handled explicitly (bool, ints, floats,
+   decimal, date, timestamp, string); anything else throws instead of fabricating "key".
+8. num_affected_rows: checked((int)...) in both sync and async paths � counts above
+   int.MaxValue now throw OverflowException instead of wrapping.
+9. Reader Close(): also clears _jsonRows/_pendingInline/_pendingLinks so a closed reader
+   left in scope cannot retain a whole result payload.
+10. README type table: TIMESTAMP (Kind=Utc) and TIMESTAMP_NTZ (Kind=Unspecified) split
+    into separate rows.
+11. Legacy schema sweep: now double-gated � requires DATABRICKS_SWEEP_LEGACY_SCHEMAS=1
+    plus an exact legacy-shape regex match (^adonet_[a-z0-9_]+_[0-9a-f]{32}$); fixed
+    adodotnet_* schemas and unrelated adonet_-prefixed names are never dropped.
+12. PR description drift (throwaway vs fixed schemas): User manually edited PR.
+
+Tests: ReviewHardening3Tests (new: interval sign matrix, decimal precision matrix,
+leading-zero regression) + RestStatementTransportTests (submission-503-no-retry,
+poll-503-retry) + DecimalTests DECIMAL(38,38) acceptance. Full suite green including
+49 live integration tests.

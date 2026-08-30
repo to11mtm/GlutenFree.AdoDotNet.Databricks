@@ -1,9 +1,9 @@
 # GlutenFree ADO.NET Provider for Databricks
 
 An open source, from-scratch **ADO.NET data provider for Databricks SQL warehouses**, plus a
-**linq2db provider** built on top of it. No Thrift, no ODBC driver installs — just HTTP against
+**linq2db provider** built on top of it. No Thrift (Yet...), just HTTP against
 the Databricks [Statement Execution API](https://docs.databricks.com/api/workspace/statementexecution)
-with Apache Arrow result decoding.
+with Apache Arrow result decoding. No ODBC Jank needed, pure .NET 8, async-first, injection-safe, and compatible with both Dapper as well as linq2db.
 
 | Package | Description |
 |---|---|
@@ -130,13 +130,15 @@ db.GetTable<Order>()
 | `BOOLEAN` | `bool` |
 | `BINARY` | `byte[]` |
 | `DATE` | `DateOnly` (`GetDateOnly`; `GetDateTime` also works) |
-| `TIMESTAMP` / `TIMESTAMP_NTZ` | `DateTime` (UTC) |
+| `TIMESTAMP` | `DateTime` (`Kind=Utc`) |
+| `TIMESTAMP_NTZ` | `DateTime` (`Kind=Unspecified` — wall-clock value with no time zone; do not treat as UTC) |
 | `ARRAY` / `MAP` / `STRUCT` / `VARIANT` / `INTERVAL` | `string` (JSON representation) |
 
-## Limitations
+## Current Limitations
 
 - **SQL warehouses only** — all-purpose clusters would require the Thrift protocol
   (a transport abstraction exists for adding it later).
+  - Thrift is the target for next release.
 - **No multi-statement transactions** — Databricks SQL doesn't support them;
   `BeginTransaction` throws `NotSupportedException`. (The linq2db provider declares
   `TransactionsSupported=false` so linq2db never attempts one.)
