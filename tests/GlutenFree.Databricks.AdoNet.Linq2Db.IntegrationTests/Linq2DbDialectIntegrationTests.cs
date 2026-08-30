@@ -14,20 +14,26 @@ namespace GlutenFree.Databricks.AdoNet.Linq2Db.IntegrationTests;
 public sealed class Linq2DbDialectIntegrationTests : IAsyncLifetime
 {
     private const string Catalog = "workspace";
-    private readonly string _schema = IntegrationConfig.CreateSchemaName("l2dbx");
+    private const string Schema = "adodotnet_l2dbx_v1";
+    private readonly string _runId = Guid.NewGuid().ToString("N");
     private DatabricksConnection _connection = null!;
 
     private sealed class Sale
     {
-        [Column("id"), PrimaryKey] public long Id { get; set; }
+        [Column("run_id"), PrimaryKey(0)] public string RunId { get; set; } = "";
+
+        [Column("id"), PrimaryKey(1)] public long Id { get; set; }
 
         [Column("region")] public string? Region { get; set; }
 
         [Column("amount")] public decimal Amount { get; set; }
     }
 
-    private ITable<Sale> GetSales(DataConnection db)
-        => db.GetTable<Sale>().TableName("sales").SchemaName(_schema).ServerName(Catalog);
+    private ITable<Sale> SalesTable(DataConnection db)
+        => db.GetTable<Sale>().TableName("sales").SchemaName(Schema).ServerName(Catalog);
+
+    private IQueryable<Sale> GetSales(DataConnection db)
+        => SalesTable(db).Where(s => s.RunId == _runId);
 
     public async Task InitializeAsync()
     {
@@ -39,11 +45,15 @@ public sealed class Linq2DbDialectIntegrationTests : IAsyncLifetime
         _connection = new DatabricksConnection(IntegrationConfig.ConnectionString);
         await _connection.OpenAsync();
         await IntegrationConfig.SweepStaleSchemasAsync(_connection);
-        await ExecuteAsync($"CREATE SCHEMA IF NOT EXISTS {Catalog}.{_schema}");
-        await ExecuteAsync($"CREATE TABLE {Catalog}.{_schema}.sales (id BIGINT, region STRING, amount DECIMAL(10,2))");
+        await IntegrationConfig.EnsureVersionedSchemaAsync(
+            _connection,
+            Schema,
+            $"CREATE TABLE IF NOT EXISTS {Catalog}.{Schema}.sales " +
+            "(run_id STRING, id BIGINT, region STRING, amount DECIMAL(10,2))");
         await ExecuteAsync(
-            $"INSERT INTO {Catalog}.{_schema}.sales VALUES " +
-            "(1, 'east', 10.00), (2, 'east', 30.00), (3, 'west', 20.00), (4, 'west', 5.00)");
+            $"INSERT INTO {Catalog}.{Schema}.sales VALUES " +
+            $"('{_runId}', 1, 'east', 10.00), ('{_runId}', 2, 'east', 30.00), " +
+            $"('{_runId}', 3, 'west', 20.00), ('{_runId}', 4, 'west', 5.00)");
     }
 
     public async Task DisposeAsync()
@@ -55,7 +65,7 @@ public sealed class Linq2DbDialectIntegrationTests : IAsyncLifetime
 
         try
         {
-            await ExecuteAsync($"DROP SCHEMA IF EXISTS {Catalog}.{_schema} CASCADE");
+            await IntegrationConfig.DeleteRunRowsAsync(_connection, Schema, _runId, "sales");
         }
         finally
         {
@@ -154,13 +164,13 @@ public sealed class Linq2DbDialectIntegrationTests : IAsyncLifetime
     {
         using var db = DatabricksTools.CreateDataConnection(_connection);
 
-        var copied = GetSales(db).BulkCopy(
+        var copied = SalesTable(db).BulkCopy(
             new BulkCopyOptions { BulkCopyType = BulkCopyType.MultipleRows },
             new[]
             {
-                new Sale { Id = 100, Region = "north", Amount = 1.00m },
-                new Sale { Id = 101, Region = "north", Amount = 2.00m },
-                new Sale { Id = 102, Region = "north", Amount = 3.00m },
+                new Sale { RunId = _runId, Id = 100, Region = "north", Amount = 1.00m },
+                new Sale { RunId = _runId, Id = 101, Region = "north", Amount = 2.00m },
+                new Sale { RunId = _runId, Id = 102, Region = "north", Amount = 3.00m },
             });
 
         Assert.Equal(3, copied.RowsCopied);
@@ -172,12 +182,13 @@ public sealed class Linq2DbDialectIntegrationTests : IAsyncLifetime
     {
         using var db = DatabricksTools.CreateDataConnection(_connection);
 
-        var affected = GetSales(db)
+        // Composite target key (run_id, id) keeps merges isolated to this run's rows.
+        var affected = SalesTable(db)
             .Merge()
             .Using(new[]
             {
-                new Sale { Id = 1, Region = "east", Amount = 99.99m },  // update
-                new Sale { Id = 200, Region = "south", Amount = 7.77m }, // insert
+                new Sale { RunId = _runId, Id = 1, Region = "east", Amount = 99.99m },  // update
+                new Sale { RunId = _runId, Id = 200, Region = "south", Amount = 7.77m }, // insert
             })
             .OnTargetKey()
             .UpdateWhenMatched()

@@ -63,8 +63,10 @@ When the variables are absent the same command reports the tests as skipped.
 
 ## Notes / expectations
 
-- Tests create objects only inside a dedicated schema (e.g. `adonet_it_<random>`) in the
-  `workspace` catalog and drop it afterwards; nothing else in the workspace is touched.
+- Tests use fixed, versioned schemas (`adodotnet_<name>_v1`) in the `workspace` catalog;
+  each run's rows are tagged with a `run_id` GUID and deleted afterwards. Tables are created
+  once with `IF NOT EXISTS` and never dropped (dropped managed tables would count against
+  the metastore table quota for ~7 days); nothing else in the workspace is touched.
 - Free Edition serverless warehouses auto-stop; the first test run may take ~30–60 s extra
   while the warehouse starts.
 - Free Edition has rate limits; if you see 429 retries in test output, that's expected and

@@ -32,6 +32,7 @@ the provider keeps feature parity:**
   richer scaffolding metadata (today they scaffold as `string`).
 
 ### Other candidates
+- Pooled memory buffers for Arrow deserialization (e.g. `ArrayPool<byte>` or a pattern similar to Cysharp's array Pools).
 - OAuth U2M (interactive browser) authentication flow.
 - Azure AD / Entra ID passthrough authentication.
 - `System.Diagnostics.Activity` (OpenTelemetry) spans for statement execution.

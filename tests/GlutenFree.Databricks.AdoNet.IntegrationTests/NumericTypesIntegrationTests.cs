@@ -10,7 +10,8 @@ namespace GlutenFree.Databricks.AdoNet.IntegrationTests;
 public sealed class NumericTypesIntegrationTests : IAsyncLifetime
 {
     private const string Catalog = "workspace";
-    private readonly string _schema = IntegrationConfig.CreateSchemaName("num");
+    private const string Schema = "adodotnet_num_v1";
+    private readonly string _runId = Guid.NewGuid().ToString("N");
     private DatabricksConnection _connection = null!;
 
     public async Task InitializeAsync()
@@ -23,6 +24,12 @@ public sealed class NumericTypesIntegrationTests : IAsyncLifetime
         _connection = new DatabricksConnection(IntegrationConfig.ConnectionString);
         await _connection.OpenAsync();
         await IntegrationConfig.SweepStaleSchemasAsync(_connection);
+        await IntegrationConfig.EnsureVersionedSchemaAsync(
+            _connection,
+            Schema,
+            $"CREATE TABLE IF NOT EXISTS {Catalog}.{Schema}.numerics " +
+            "(run_id STRING, t TINYINT, s SMALLINT, i INT, b BIGINT, " +
+            "f FLOAT, d DOUBLE, small_dec DECIMAL(18,4), big_dec DECIMAL(38,0), n INT)");
     }
 
     public async Task DisposeAsync()
@@ -34,19 +41,12 @@ public sealed class NumericTypesIntegrationTests : IAsyncLifetime
 
         try
         {
-            await ExecuteAsync($"DROP SCHEMA IF EXISTS {Catalog}.{_schema} CASCADE");
+            await IntegrationConfig.DeleteRunRowsAsync(_connection, Schema, _runId, "numerics");
         }
         finally
         {
             await _connection.DisposeAsync();
         }
-    }
-
-    private async Task ExecuteAsync(string sql)
-    {
-        await using var command = _connection.CreateCommand();
-        command.CommandText = sql;
-        await command.ExecuteNonQueryAsync();
     }
 
     private async Task<DatabricksDataReader> QueryAsync(string sql)
@@ -175,17 +175,14 @@ public sealed class NumericTypesIntegrationTests : IAsyncLifetime
     [IntegrationFact]
     public async Task Numeric_storage_roundtrip_through_table()
     {
-        await ExecuteAsync($"CREATE SCHEMA IF NOT EXISTS {Catalog}.{_schema}");
-        var table = $"{Catalog}.{_schema}.numerics";
-        await ExecuteAsync(
-            $"CREATE TABLE {table} (t TINYINT, s SMALLINT, i INT, b BIGINT, " +
-            "f FLOAT, d DOUBLE, small_dec DECIMAL(18,4), big_dec DECIMAL(38,0), n INT)");
+        var table = $"{Catalog}.{Schema}.numerics";
 
         // Store boundary values via parameters, read back via Arrow.
         await using (var insert = _connection.CreateCommand())
         {
             insert.CommandText =
-                $"INSERT INTO {table} VALUES (:t, :s, :i, :b, :f, :d, :small_dec, CAST(:big_dec AS DECIMAL(38,0)), :n)";
+                $"INSERT INTO {table} VALUES (:run_id, :t, :s, :i, :b, :f, :d, :small_dec, CAST(:big_dec AS DECIMAL(38,0)), :n)";
+            insert.Parameters.AddWithValue("run_id", _runId);
             insert.Parameters.AddWithValue("t", sbyte.MinValue);
             insert.Parameters.AddWithValue("s", short.MaxValue);
             insert.Parameters.AddWithValue("i", int.MinValue);
@@ -198,7 +195,8 @@ public sealed class NumericTypesIntegrationTests : IAsyncLifetime
             Assert.Equal(1, await insert.ExecuteNonQueryAsync());
         }
 
-        await using var reader = await QueryAsync($"SELECT * FROM {table}");
+        await using var reader = await QueryAsync(
+            $"SELECT t, s, i, b, f, d, small_dec, big_dec, n FROM {table} WHERE run_id = '{_runId}'");
 
         Assert.Equal(sbyte.MinValue, reader.GetSByte(0));
         Assert.Equal(short.MaxValue, reader.GetInt16(1));

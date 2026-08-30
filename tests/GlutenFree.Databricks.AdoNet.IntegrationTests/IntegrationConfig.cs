@@ -31,18 +31,47 @@ public static class IntegrationConfig
     private static int s_swept;
 
     /// <summary>
-    /// Creates a schema name carrying a creation timestamp (hex unix seconds) so aborted
-    /// runs can be swept by age: <c>adonet_&lt;hexSeconds&gt;_&lt;tag&gt;_&lt;guid&gt;</c>.
+    /// Ensures a fixed, versioned test schema and its tables exist (idempotent
+    /// <c>IF NOT EXISTS</c> DDL). Schemas/tables are never dropped — tests scope their rows
+    /// with a per-run <c>run_id</c> column and delete only those rows on cleanup, keeping the
+    /// metastore table count constant (dropped managed tables would count against the
+    /// 500-per-metastore quota for ~7 days due to UNDROP retention). If a table's shape must
+    /// change, bump the schema version suffix (v1 → v2) instead of altering it.
     /// </summary>
-    public static string CreateSchemaName(string tag)
-        => $"adonet_{DateTimeOffset.UtcNow.ToUnixTimeSeconds():x}_{tag}_{Guid.NewGuid():N}";
+    public static async Task EnsureVersionedSchemaAsync(
+        DatabricksConnection connection, string schema, params string[] createTableStatements)
+    {
+        await using (var create = connection.CreateCommand())
+        {
+            create.CommandText = $"CREATE SCHEMA IF NOT EXISTS workspace.{schema}";
+            await create.ExecuteNonQueryAsync();
+        }
+
+        foreach (var statement in createTableStatements)
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = statement;
+            await command.ExecuteNonQueryAsync();
+        }
+    }
+
+    /// <summary>Deletes this run's rows (matched by <c>run_id</c>) from the given tables.</summary>
+    public static async Task DeleteRunRowsAsync(
+        DatabricksConnection connection, string schema, string runId, params string[] tables)
+    {
+        foreach (var table in tables)
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = $"DELETE FROM workspace.{schema}.{table} WHERE run_id = :run_id";
+            command.Parameters.AddWithValue("run_id", runId);
+            await command.ExecuteNonQueryAsync();
+        }
+    }
 
     /// <summary>
-    /// Drops leftover <c>adonet_*</c> schemas from previous aborted runs (older than two
-    /// hours, or legacy names without a timestamp). Runs once per process; keeps killed
-    /// test runs from leaking tables against the metastore quota. Note: Databricks retains
-    /// dropped managed tables for ~7 days (UNDROP), and those still count toward the
-    /// 500-tables-per-metastore quota until purged automatically.
+    /// Drops legacy throwaway <c>adonet_*</c> schemas left behind by the old per-run schema
+    /// pattern (aborted runs skipped cleanup). Fixed versioned schemas use the
+    /// <c>adodotnet_*</c> prefix and are intentionally not matched. Runs once per process.
     /// </summary>
     public static async Task SweepStaleSchemasAsync(DatabricksConnection connection)
     {
@@ -55,21 +84,11 @@ public static class IntegrationConfig
         await using (var list = connection.CreateCommand())
         {
             list.CommandText =
-                "SELECT schema_name FROM workspace.information_schema.schemata WHERE schema_name LIKE 'adonet%'";
+                "SELECT schema_name FROM workspace.information_schema.schemata WHERE schema_name LIKE 'adonet\\_%'";
             await using var reader = await list.ExecuteReaderAsync();
-            var cutoff = DateTimeOffset.UtcNow.AddHours(-2).ToUnixTimeSeconds();
             while (await reader.ReadAsync())
             {
-                var name = reader.GetString(0);
-                var parts = name.Split('_');
-                var hasTimestamp = parts.Length >= 3
-                    && long.TryParse(parts[1], System.Globalization.NumberStyles.HexNumber, null, out var created)
-                    && created >= cutoff;
-                if (!hasTimestamp)
-                {
-                    // Legacy names (no timestamp) or older than the cutoff: stale leftovers.
-                    stale.Add(name);
-                }
+                stale.Add(reader.GetString(0));
             }
         }
 

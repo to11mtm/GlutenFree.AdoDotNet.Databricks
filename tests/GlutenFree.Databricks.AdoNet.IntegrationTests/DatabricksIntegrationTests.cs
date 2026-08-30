@@ -8,13 +8,15 @@ namespace GlutenFree.Databricks.AdoNet.IntegrationTests;
 /// <summary>
 /// End-to-end tests against a live Databricks SQL warehouse. Skipped unless the
 /// DATABRICKS_* environment variables are set (see planning/integration-test-setup.md).
-/// All DDL happens in a dedicated throwaway schema in the <c>workspace</c> catalog.
+/// Uses a fixed versioned schema; rows are scoped by a per-run <c>run_id</c> and deleted
+/// on cleanup (tables are never dropped, keeping the metastore table count constant).
 /// </summary>
 [Trait("Category", "Integration")]
 public sealed class DatabricksIntegrationTests : IAsyncLifetime
 {
     private const string Catalog = "workspace";
-    private readonly string _schema = IntegrationConfig.CreateSchemaName("it");
+    private const string Schema = "adodotnet_it_v1";
+    private readonly string _runId = Guid.NewGuid().ToString("N");
     private DatabricksConnection _connection = null!;
 
     public async Task InitializeAsync()
@@ -27,7 +29,12 @@ public sealed class DatabricksIntegrationTests : IAsyncLifetime
         _connection = new DatabricksConnection(IntegrationConfig.ConnectionString);
         await _connection.OpenAsync();
         await IntegrationConfig.SweepStaleSchemasAsync(_connection);
-        await ExecuteAsync($"CREATE SCHEMA IF NOT EXISTS {Catalog}.{_schema}");
+        await IntegrationConfig.EnsureVersionedSchemaAsync(
+            _connection,
+            Schema,
+            $"CREATE TABLE IF NOT EXISTS {Catalog}.{Schema}.orders " +
+            "(run_id STRING, id BIGINT, customer STRING, amount DECIMAL(10,2))",
+            $"CREATE TABLE IF NOT EXISTS {Catalog}.{Schema}.schema_probe (a INT, b STRING)");
     }
 
     public async Task DisposeAsync()
@@ -39,7 +46,7 @@ public sealed class DatabricksIntegrationTests : IAsyncLifetime
 
         try
         {
-            await ExecuteAsync($"DROP SCHEMA IF EXISTS {Catalog}.{_schema} CASCADE");
+            await IntegrationConfig.DeleteRunRowsAsync(_connection, Schema, _runId, "orders");
         }
         finally
         {
@@ -165,17 +172,21 @@ public sealed class DatabricksIntegrationTests : IAsyncLifetime
     }
 
     [IntegrationFact]
-    public async Task Ddl_dml_and_query_lifecycle()
+    public async Task Dml_and_query_lifecycle()
     {
-        var table = $"{Catalog}.{_schema}.orders";
-        await ExecuteAsync($"CREATE TABLE {table} (id BIGINT, customer STRING, amount DECIMAL(10,2))");
+        var table = $"{Catalog}.{Schema}.orders";
 
-        var affected = await ExecuteAsync(
-            $"INSERT INTO {table} VALUES (1, 'alice', 12.34), (2, NULL, 56.78)");
-        Assert.Equal(2, affected);
+        await using (var insert = _connection.CreateCommand())
+        {
+            insert.CommandText =
+                $"INSERT INTO {table} VALUES (:r, 1, 'alice', 12.34), (:r, 2, NULL, 56.78)";
+            insert.Parameters.AddWithValue("r", _runId);
+            Assert.Equal(2, await insert.ExecuteNonQueryAsync());
+        }
 
         await using var command = _connection.CreateCommand();
-        command.CommandText = $"SELECT id, customer, amount FROM {table} ORDER BY id";
+        command.CommandText = $"SELECT id, customer, amount FROM {table} WHERE run_id = :r ORDER BY id";
+        command.Parameters.AddWithValue("r", _runId);
         await using var reader = await command.ExecuteReaderAsync();
 
         Assert.True(await reader.ReadAsync());
@@ -199,15 +210,12 @@ public sealed class DatabricksIntegrationTests : IAsyncLifetime
     }
 
     [IntegrationFact]
-    public async Task GetSchema_lists_created_table()
+    public void GetSchema_lists_fixture_table()
     {
-        var table = $"{Catalog}.{_schema}.schema_probe";
-        await ExecuteAsync($"CREATE TABLE {table} (a INT, b STRING)");
-
-        var tables = _connection.GetSchema("Tables", [Catalog, _schema, null]);
+        var tables = _connection.GetSchema("Tables", [Catalog, Schema, null]);
         Assert.Contains(tables.Rows.Cast<DataRow>(), r => (string)r["TABLE_NAME"] == "schema_probe");
 
-        var columns = _connection.GetSchema("Columns", [Catalog, _schema, "schema_probe", null]);
+        var columns = _connection.GetSchema("Columns", [Catalog, Schema, "schema_probe", null]);
         Assert.Equal(2, columns.Rows.Count);
         Assert.Equal("a", columns.Rows[0]["COLUMN_NAME"]);
     }

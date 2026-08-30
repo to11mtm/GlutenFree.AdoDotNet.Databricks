@@ -15,19 +15,24 @@ namespace GlutenFree.Databricks.AdoNet.Linq2Db.IntegrationTests;
 public sealed class Linq2DbSqlBitsIntegrationTests : IAsyncLifetime
 {
     private const string Catalog = "workspace";
-    private readonly string _schema = IntegrationConfig.CreateSchemaName("l2sql");
+    private const string Schema = "adodotnet_l2sql_v1";
+    private readonly string _runId = Guid.NewGuid().ToString("N");
     private DatabricksConnection _connection = null!;
 
     private sealed class Customer
     {
-        [Column("id"), PrimaryKey] public long Id { get; set; }
+        [Column("run_id"), PrimaryKey(0)] public string RunId { get; set; } = "";
+
+        [Column("id"), PrimaryKey(1)] public long Id { get; set; }
 
         [Column("name")] public string? Name { get; set; }
     }
 
     private sealed class Order
     {
-        [Column("id"), PrimaryKey] public long Id { get; set; }
+        [Column("run_id"), PrimaryKey(0)] public string RunId { get; set; } = "";
+
+        [Column("id"), PrimaryKey(1)] public long Id { get; set; }
 
         [Column("customer_id")] public long CustomerId { get; set; }
 
@@ -36,7 +41,9 @@ public sealed class Linq2DbSqlBitsIntegrationTests : IAsyncLifetime
 
     private sealed class TypeRow
     {
-        [Column("id"), PrimaryKey] public long Id { get; set; }
+        [Column("run_id"), PrimaryKey(0)] public string RunId { get; set; } = "";
+
+        [Column("id"), PrimaryKey(1)] public long Id { get; set; }
 
         [Column("flag")] public bool Flag { get; set; }
 
@@ -53,14 +60,23 @@ public sealed class Linq2DbSqlBitsIntegrationTests : IAsyncLifetime
         [Column("gid")] public Guid Gid { get; set; }
     }
 
-    private ITable<Customer> Customers(DataConnection db)
-        => db.GetTable<Customer>().TableName("t_customers").SchemaName(_schema).ServerName(Catalog);
+    private ITable<Customer> CustomersTable(DataConnection db)
+        => db.GetTable<Customer>().TableName("t_customers").SchemaName(Schema).ServerName(Catalog);
 
-    private ITable<Order> Orders(DataConnection db)
-        => db.GetTable<Order>().TableName("t_orders").SchemaName(_schema).ServerName(Catalog);
+    private ITable<Order> OrdersTable(DataConnection db)
+        => db.GetTable<Order>().TableName("t_orders").SchemaName(Schema).ServerName(Catalog);
 
-    private ITable<TypeRow> Types(DataConnection db)
-        => db.GetTable<TypeRow>().TableName("t_types").SchemaName(_schema).ServerName(Catalog);
+    private ITable<TypeRow> TypesTable(DataConnection db)
+        => db.GetTable<TypeRow>().TableName("t_types").SchemaName(Schema).ServerName(Catalog);
+
+    private IQueryable<Customer> Customers(DataConnection db)
+        => CustomersTable(db).Where(c => c.RunId == _runId);
+
+    private IQueryable<Order> Orders(DataConnection db)
+        => OrdersTable(db).Where(o => o.RunId == _runId);
+
+    private IQueryable<TypeRow> Types(DataConnection db)
+        => TypesTable(db).Where(t => t.RunId == _runId);
 
     public async Task InitializeAsync()
     {
@@ -72,17 +88,22 @@ public sealed class Linq2DbSqlBitsIntegrationTests : IAsyncLifetime
         _connection = new DatabricksConnection(IntegrationConfig.ConnectionString);
         await _connection.OpenAsync();
         await IntegrationConfig.SweepStaleSchemasAsync(_connection);
-        await ExecuteAsync($"CREATE SCHEMA IF NOT EXISTS {Catalog}.{_schema}");
-        await ExecuteAsync($"CREATE TABLE {Catalog}.{_schema}.t_customers (id BIGINT, name STRING)");
-        await ExecuteAsync($"CREATE TABLE {Catalog}.{_schema}.t_orders (id BIGINT, customer_id BIGINT, amount DECIMAL(10,2))");
-        await ExecuteAsync(
-            $"CREATE TABLE {Catalog}.{_schema}.t_types " +
-            "(id BIGINT, flag BOOLEAN, ts TIMESTAMP, day DATE, price DECIMAL(10,2), name STRING, blob BINARY, gid STRING)");
+        await IntegrationConfig.EnsureVersionedSchemaAsync(
+            _connection,
+            Schema,
+            $"CREATE TABLE IF NOT EXISTS {Catalog}.{Schema}.t_customers (run_id STRING, id BIGINT, name STRING)",
+            $"CREATE TABLE IF NOT EXISTS {Catalog}.{Schema}.t_orders " +
+            "(run_id STRING, id BIGINT, customer_id BIGINT, amount DECIMAL(10,2))",
+            $"CREATE TABLE IF NOT EXISTS {Catalog}.{Schema}.t_types " +
+            "(run_id STRING, id BIGINT, flag BOOLEAN, ts TIMESTAMP, day DATE, price DECIMAL(10,2), " +
+            "name STRING, blob BINARY, gid STRING)");
 
         // alice has orders, bob has none; order 30 references a missing customer (id 99).
-        await ExecuteAsync($"INSERT INTO {Catalog}.{_schema}.t_customers VALUES (1, 'alice'), (2, 'bob')");
         await ExecuteAsync(
-            $"INSERT INTO {Catalog}.{_schema}.t_orders VALUES (10, 1, 5.00), (11, 1, 15.00), (30, 99, 7.50)");
+            $"INSERT INTO {Catalog}.{Schema}.t_customers VALUES ('{_runId}', 1, 'alice'), ('{_runId}', 2, 'bob')");
+        await ExecuteAsync(
+            $"INSERT INTO {Catalog}.{Schema}.t_orders VALUES " +
+            $"('{_runId}', 10, 1, 5.00), ('{_runId}', 11, 1, 15.00), ('{_runId}', 30, 99, 7.50)");
     }
 
     public async Task DisposeAsync()
@@ -94,7 +115,8 @@ public sealed class Linq2DbSqlBitsIntegrationTests : IAsyncLifetime
 
         try
         {
-            await ExecuteAsync($"DROP SCHEMA IF EXISTS {Catalog}.{_schema} CASCADE");
+            await IntegrationConfig.DeleteRunRowsAsync(
+                _connection, Schema, _runId, "t_customers", "t_orders", "t_types");
         }
         finally
         {
@@ -242,7 +264,7 @@ public sealed class Linq2DbSqlBitsIntegrationTests : IAsyncLifetime
     public void Update_and_delete_roundtrip()
     {
         using var db = DatabricksTools.CreateDataConnection(_connection);
-        Orders(db).Insert(() => new Order { Id = 500, CustomerId = 2, Amount = 1.00m });
+        OrdersTable(db).Insert(() => new Order { RunId = _runId, Id = 500, CustomerId = 2, Amount = 1.00m });
 
         Orders(db)
             .Where(o => o.Id == 500L)
@@ -264,6 +286,7 @@ public sealed class Linq2DbSqlBitsIntegrationTests : IAsyncLifetime
 
         var original = new TypeRow
         {
+            RunId = _runId,
             Id = 1,
             Flag = true,
             Ts = new DateTime(2026, 8, 29, 12, 34, 56, 789, DateTimeKind.Utc),
@@ -274,8 +297,9 @@ public sealed class Linq2DbSqlBitsIntegrationTests : IAsyncLifetime
             Gid = Guid.Parse("0f8fad5b-d9cb-469f-a165-70867728950e"),
         };
 
-        Types(db).Insert(() => new TypeRow
+        TypesTable(db).Insert(() => new TypeRow
         {
+            RunId = original.RunId,
             Id = original.Id,
             Flag = original.Flag,
             Ts = original.Ts,

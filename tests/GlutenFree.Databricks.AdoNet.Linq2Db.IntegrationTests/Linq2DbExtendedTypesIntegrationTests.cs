@@ -14,12 +14,15 @@ namespace GlutenFree.Databricks.AdoNet.Linq2Db.IntegrationTests;
 public sealed class Linq2DbExtendedTypesIntegrationTests : IAsyncLifetime
 {
     private const string Catalog = "workspace";
-    private readonly string _schema = IntegrationConfig.CreateSchemaName("l2ext");
+    private const string Schema = "adodotnet_l2ext_v1";
+    private readonly string _runId = Guid.NewGuid().ToString("N");
     private DatabricksConnection _connection = null!;
 
     private sealed class ExtRow
     {
-        [Column("id"), PrimaryKey] public long Id { get; set; }
+        [Column("run_id"), PrimaryKey(0)] public string RunId { get; set; } = "";
+
+        [Column("id"), PrimaryKey(1)] public long Id { get; set; }
 
         [Column("ntz")] public DateTime? Ntz { get; set; }
 
@@ -37,8 +40,11 @@ public sealed class Linq2DbExtendedTypesIntegrationTests : IAsyncLifetime
         [Column("vr")] public string? Vr { get; set; }
     }
 
-    private ITable<ExtRow> Rows(DataConnection db)
-        => db.GetTable<ExtRow>().TableName("t_ext").SchemaName(_schema).ServerName(Catalog);
+    private ITable<ExtRow> RowsTable(DataConnection db)
+        => db.GetTable<ExtRow>().TableName("t_ext").SchemaName(Schema).ServerName(Catalog);
+
+    private IQueryable<ExtRow> Rows(DataConnection db)
+        => RowsTable(db).Where(r => r.RunId == _runId);
 
     public async Task InitializeAsync()
     {
@@ -50,14 +56,15 @@ public sealed class Linq2DbExtendedTypesIntegrationTests : IAsyncLifetime
         _connection = new DatabricksConnection(IntegrationConfig.ConnectionString);
         await _connection.OpenAsync();
         await IntegrationConfig.SweepStaleSchemasAsync(_connection);
-        await ExecuteAsync($"CREATE SCHEMA IF NOT EXISTS {Catalog}.{_schema}");
-        await ExecuteAsync(
-            $"CREATE TABLE {Catalog}.{_schema}.t_ext (" +
-            "id BIGINT, ntz TIMESTAMP_NTZ, ch CHAR(5), vc VARCHAR(10), " +
+        await IntegrationConfig.EnsureVersionedSchemaAsync(
+            _connection,
+            Schema,
+            $"CREATE TABLE IF NOT EXISTS {Catalog}.{Schema}.t_ext (" +
+            "run_id STRING, id BIGINT, ntz TIMESTAMP_NTZ, ch CHAR(5), vc VARCHAR(10), " +
             "arr ARRAY<INT>, mp MAP<STRING, INT>, st STRUCT<a: INT, b: STRING>, vr VARIANT)");
         await ExecuteAsync(
-            $"INSERT INTO {Catalog}.{_schema}.t_ext VALUES (" +
-            "1, TIMESTAMP_NTZ'2026-08-29 12:34:56.789', 'abcde', 'hello', " +
+            $"INSERT INTO {Catalog}.{Schema}.t_ext VALUES (" +
+            $"'{_runId}', 1, TIMESTAMP_NTZ'2026-08-29 12:34:56.789', 'abcde', 'hello', " +
             "array(1, 2, 3), map('a', 1, 'b', 2), named_struct('a', 42, 'b', 'x'), " +
             """parse_json('{"name": "alice", "tags": [1, 2]}'))""");
     }
@@ -71,7 +78,7 @@ public sealed class Linq2DbExtendedTypesIntegrationTests : IAsyncLifetime
 
         try
         {
-            await ExecuteAsync($"DROP SCHEMA IF EXISTS {Catalog}.{_schema} CASCADE");
+            await IntegrationConfig.DeleteRunRowsAsync(_connection, Schema, _runId, "t_ext");
         }
         finally
         {
@@ -108,8 +115,9 @@ public sealed class Linq2DbExtendedTypesIntegrationTests : IAsyncLifetime
         using var db = DatabricksTools.CreateDataConnection(_connection);
         var ntz = new DateTime(2030, 1, 2, 3, 4, 5, DateTimeKind.Unspecified);
 
-        Rows(db).Insert(() => new ExtRow
+        RowsTable(db).Insert(() => new ExtRow
         {
+            RunId = _runId,
             Id = 2,
             Ntz = ntz,
             Ch = "zzzzz",

@@ -9,28 +9,35 @@ namespace GlutenFree.Databricks.AdoNet.Linq2Db.IntegrationTests;
 /// <summary>
 /// End-to-end linq2db tests against a live Databricks SQL warehouse.
 /// Skipped unless the DATABRICKS_* environment variables are set.
+/// Uses a fixed versioned schema; rows are scoped by a per-run <c>run_id</c>.
 /// </summary>
 [Trait("Category", "Integration")]
 public sealed class Linq2DbIntegrationTests : IAsyncLifetime
 {
     private const string Catalog = "workspace";
-    private readonly string _schema = IntegrationConfig.CreateSchemaName("l2db");
+    private const string Schema = "adodotnet_l2db_v1";
+    private readonly string _runId = Guid.NewGuid().ToString("N");
     private DatabricksConnection _connection = null!;
 
     private sealed class Product
     {
-        [Column("id"), PrimaryKey] public long Id { get; set; }
+        [Column("run_id"), PrimaryKey(0)] public string RunId { get; set; } = "";
+
+        [Column("id"), PrimaryKey(1)] public long Id { get; set; }
 
         [Column("name")] public string? Name { get; set; }
 
         [Column("price")] public decimal Price { get; set; }
     }
 
-    private ITable<Product> GetProducts(LinqToDB.Data.DataConnection db)
+    private ITable<Product> ProductsTable(LinqToDB.Data.DataConnection db)
         => db.GetTable<Product>()
             .TableName("products")
-            .SchemaName(_schema)
+            .SchemaName(Schema)
             .ServerName(Catalog);
+
+    private IQueryable<Product> GetProducts(LinqToDB.Data.DataConnection db)
+        => ProductsTable(db).Where(p => p.RunId == _runId);
 
     public async Task InitializeAsync()
     {
@@ -42,11 +49,14 @@ public sealed class Linq2DbIntegrationTests : IAsyncLifetime
         _connection = new DatabricksConnection(IntegrationConfig.ConnectionString);
         await _connection.OpenAsync();
         await IntegrationConfig.SweepStaleSchemasAsync(_connection);
-        await ExecuteAsync($"CREATE SCHEMA IF NOT EXISTS {Catalog}.{_schema}");
+        await IntegrationConfig.EnsureVersionedSchemaAsync(
+            _connection,
+            Schema,
+            $"CREATE TABLE IF NOT EXISTS {Catalog}.{Schema}.products " +
+            "(run_id STRING, id BIGINT, name STRING, price DECIMAL(10,2))");
         await ExecuteAsync(
-            $"CREATE TABLE {Catalog}.{_schema}.products (id BIGINT, name STRING, price DECIMAL(10,2))");
-        await ExecuteAsync(
-            $"INSERT INTO {Catalog}.{_schema}.products VALUES (1, 'widget', 9.99), (2, 'gadget', 24.50), (3, 'gizmo', 100.00)");
+            $"INSERT INTO {Catalog}.{Schema}.products VALUES " +
+            $"('{_runId}', 1, 'widget', 9.99), ('{_runId}', 2, 'gadget', 24.50), ('{_runId}', 3, 'gizmo', 100.00)");
     }
 
     public async Task DisposeAsync()
@@ -58,7 +68,7 @@ public sealed class Linq2DbIntegrationTests : IAsyncLifetime
 
         try
         {
-            await ExecuteAsync($"DROP SCHEMA IF EXISTS {Catalog}.{_schema} CASCADE");
+            await IntegrationConfig.DeleteRunRowsAsync(_connection, Schema, _runId, "products");
         }
         finally
         {
@@ -107,7 +117,7 @@ public sealed class Linq2DbIntegrationTests : IAsyncLifetime
     {
         using var db = DatabricksTools.CreateDataConnection(_connection);
 
-        GetProducts(db).Insert(() => new Product { Id = 4, Name = "doohickey", Price = 1.25m });
+        ProductsTable(db).Insert(() => new Product { RunId = _runId, Id = 4, Name = "doohickey", Price = 1.25m });
 
         Assert.Equal(4, GetProducts(db).Count());
         Assert.Equal(1.25m, GetProducts(db).Single(p => p.Id == 4L).Price);
