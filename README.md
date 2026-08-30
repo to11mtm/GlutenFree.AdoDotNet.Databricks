@@ -128,9 +128,19 @@ What changes with Thrift:
   via `USE` instead of replayed per statement.
 - **All-purpose (interactive) clusters** — set `HttpPath` to the cluster endpoint
   (`/sql/protocolv1/o/<org-id>/<cluster-id>`); cluster endpoints only speak Thrift, so the
-  default REST transport rejects them with guidance. (Warehouse behavior is verified live
-  in CI; cluster coverage is env-gated via `DATABRICKS_CLUSTER_HTTP_PATH` since Free
-  Edition workspaces have no all-purpose clusters.)
+  default REST transport rejects them with guidance.
+
+  > **⚠️ Cluster support is untested against a live cluster.** Our development and CI
+  > environments run on Databricks Free Edition, which does not offer all-purpose
+  > clusters, so we currently have no way to fully test this path end-to-end (warehouse
+  > behavior *is* verified live; cluster tests are env-gated via
+  > `DATABRICKS_CLUSTER_HTTP_PATH` and self-skip without one). If you hit issues testing
+  > against a cluster, please [open an issue](../../issues): we're happy to prepare fix
+  > branches and draft PRs for you to test against your cluster — we just can't finalize
+  > a fix ourselves without someone verifying it live. Likewise, if you open a PR, we'll
+  > gladly review it and run everything we *can* test (warehouse paths, CI) against your
+  > branch. **Pull requests from users who can test against real clusters are very
+  > welcome.**
 - **Named parameters are emulated**: the ADBC driver exposes no native binding, so
   parameterized statements are wrapped in `EXECUTE IMMEDIATE '<sql>' USING CAST(...) AS name`.
   The server still resolves the `:name` markers (no client-side SQL rewriting of your
@@ -182,7 +192,11 @@ The integration test suites can run against either transport: set
 
 - **The default REST transport is SQL-warehouse-only** — all-purpose (interactive)
   clusters only speak Thrift; use the `GlutenFree.Databricks.AdoNet.Thrift` add-on with a
-  cluster `HttpPath` (see [Thrift transport](#thrift-transport-opt-in)).
+  cluster `HttpPath` (see [Thrift transport](#thrift-transport-opt-in)). Note that cluster
+  support is currently untested against a live cluster (not available on Free Edition) —
+  report issues and we'll prepare test branches/draft PRs for you to verify against your
+  cluster; PRs from users with cluster access are welcome, and we'll test what we can
+  (warehouse paths, CI) on your branch.
 - **No multi-statement transactions** — Databricks SQL doesn't support them;
   `BeginTransaction` throws `NotSupportedException`. (The linq2db provider declares
   `TransactionsSupported=false` so linq2db never attempts one.)
