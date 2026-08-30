@@ -10,6 +10,7 @@
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/GlutenFree.Databricks.AdoNet.Linq2Db/GlutenFree.Databricks.AdoNet.Linq2Db.csproj" />
+    <Project Path="src/GlutenFree.Databricks.AdoNet.Thrift/GlutenFree.Databricks.AdoNet.Thrift.csproj" />
     <Project Path="src/GlutenFree.Databricks.AdoNet/GlutenFree.Databricks.AdoNet.csproj" />
   </Folder>
   <Folder Name="/tests/">

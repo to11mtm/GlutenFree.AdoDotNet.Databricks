@@ -200,6 +200,14 @@ public sealed class ResultData
 
     [JsonPropertyName("external_links")]
     public IReadOnlyList<ExternalLink>? ExternalLinks { get; init; }
+
+    /// <summary>
+    /// A live Arrow record-batch stream supplied directly by a streaming transport
+    /// (e.g. the Thrift add-on). Never populated from JSON. When set, the reader drains
+    /// this stream instead of fetching chunks, and disposes it when done.
+    /// </summary>
+    [JsonIgnore]
+    public Apache.Arrow.Ipc.IArrowArrayStream? ArrowStream { get; init; }
 }
 
 /// <summary>A presigned URL from which one result chunk can be downloaded.</summary>

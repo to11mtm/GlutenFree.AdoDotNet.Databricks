@@ -10,6 +10,8 @@
   <ItemGroup>
     <InternalsVisibleTo Include="GlutenFree.Databricks.AdoNet.Tests" />
     <InternalsVisibleTo Include="GlutenFree.Databricks.AdoNet.DecimalTests" />
+    <!-- The Thrift transport add-on wires itself in via the internal TransportFactory hook. -->
+    <InternalsVisibleTo Include="GlutenFree.Databricks.AdoNet.Thrift" />
   </ItemGroup>
 
   <ItemGroup>
