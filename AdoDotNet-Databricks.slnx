@@ -1,0 +1,27 @@
+<Solution>
+  <Folder Name="/reqs/">
+    <File Path="planning/Adodotnet-databricks-provider.md" />
+    <File Path="planning/integration-test-setup.md" />
+    <File Path="planning/linq2db-dataprovider.md" />
+    <File Path="planning/more-pr-feedback.md" />
+    <File Path="planning/plan.md" />
+    <File Path="planning/post-v0.1-backlog.md" />
+    <File Path="planning/thrift-transport-plan.md" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/GlutenFree.Databricks.AdoNet.Linq2Db/GlutenFree.Databricks.AdoNet.Linq2Db.csproj" />
+    <Project Path="src/GlutenFree.Databricks.AdoNet/GlutenFree.Databricks.AdoNet.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/GlutenFree.Databricks.AdoNet.DecimalTests/GlutenFree.Databricks.AdoNet.DecimalTests.csproj" />
+    <Project Path="tests/GlutenFree.Databricks.AdoNet.IntegrationTests/GlutenFree.Databricks.AdoNet.IntegrationTests.csproj" />
+    <Project Path="tests/GlutenFree.Databricks.AdoNet.Linq2Db.IntegrationTests/GlutenFree.Databricks.AdoNet.Linq2Db.IntegrationTests.csproj" />
+    <Project Path="tests/GlutenFree.Databricks.AdoNet.Linq2Db.Tests/GlutenFree.Databricks.AdoNet.Linq2Db.Tests.csproj" />
+    <Project Path="tests/GlutenFree.Databricks.AdoNet.Tests/GlutenFree.Databricks.AdoNet.Tests.csproj" />
+  </Folder>
+  <Folder Name="/_/">
+    <File Path=".editorconfig" />
+    <File Path="LICENSE" />
+    <File Path="README.md" />
+  </Folder>
+</Solution>
