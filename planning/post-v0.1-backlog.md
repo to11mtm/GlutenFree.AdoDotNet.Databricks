@@ -32,6 +32,17 @@ the provider keeps feature parity:**
   richer scaffolding metadata (today they scaffold as `string`).
 
 ### Other candidates
+- Thrift transport follow-ups (core transport shipped as the `GlutenFree.Databricks.AdoNet.Thrift`
+  add-on wrapping the ADBC Databricks driver — see [thrift-transport-plan.md](thrift-transport-plan.md)):
+  - `Transport=Thrift` connection-string switch (needs a transport registration mechanism,
+    since the base package cannot reference the add-on; today opt-in is `UseThriftTransport()`).
+  - All-purpose cluster support (`/sql/protocolv1/...` HTTP paths + config surface).
+  - Native `TSparkParameter` binding if upstream ADBC ever exposes it (replacing the
+    `EXECUTE IMMEDIATE` emulation).
+  - Thrift metadata RPCs (`GetCatalogs`/`GetSchemas`/`GetTables`/`GetColumns`) for `GetSchema`.
+  - Session-conf passthrough (`adbc.databricks.ssp_*` server-side properties).
+  - CI: dual-transport matrix in `integration.yml` (second job with `DATABRICKS_TRANSPORT=thrift`).
+  - Track ADBC package releases (pinned exact at 0.23.0; 0.x may break API between minors).
 - Pooled memory buffers for Arrow deserialization (e.g. `ArrayPool<byte>` or a pattern similar to Cysharp's array Pools).
 - OAuth U2M (interactive browser) authentication flow.
 - Azure AD / Entra ID passthrough authentication.
@@ -49,7 +60,9 @@ the provider keeps feature parity:**
   `DatabricksTypeMap`. Public semantics stay arbitrary-precision — Int128 is internal only.
 
 ## Longer term
-- Thrift/HiveServer2 transport behind `IDatabricksTransport` (all-purpose cluster support,
-  real session pooling). Detailed spec: [thrift-transport-plan.md](thrift-transport-plan.md).
+- ~~Thrift/HiveServer2 transport behind `IDatabricksTransport`~~ — **shipped** as the
+  `GlutenFree.Databricks.AdoNet.Thrift` add-on (real sessions; warehouses only for now).
+  Remaining follow-ups tracked under "Other candidates" above; detailed spec:
+  [thrift-transport-plan.md](thrift-transport-plan.md).
 - EF Core provider (separate project).
 - Bulk ingest via staging/volume APIs (COPY INTO / streaming ingest) instead of multi-row INSERT.

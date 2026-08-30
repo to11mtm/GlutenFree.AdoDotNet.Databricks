@@ -1,14 +1,16 @@
 # GlutenFree ADO.NET Provider for Databricks
 
 An open source, from-scratch **ADO.NET data provider for Databricks SQL warehouses**, plus a
-**linq2db provider** built on top of it. No Thrift (Yet...), just HTTP against
+**linq2db provider** built on top of it. The default transport is pure HTTP against
 the Databricks [Statement Execution API](https://docs.databricks.com/api/workspace/statementexecution)
-with Apache Arrow result decoding. No ODBC Jank needed, pure .NET 8, async-first, injection-safe, and compatible with both Dapper as well as linq2db.
+with Apache Arrow result decoding; an opt-in **Thrift (HiveServer2) transport add-on** brings real
+server-side sessions. No ODBC Jank needed, pure .NET 8, async-first, injection-safe, and compatible with both Dapper as well as linq2db.
 
 | Package | Description |
 |---|---|
 | `GlutenFree.Databricks.AdoNet` | Core ADO.NET provider (`DbConnection`/`DbCommand`/`DbDataReader`) |
 | `GlutenFree.Databricks.AdoNet.Linq2Db` | [linq2db](https://github.com/linq2db/linq2db) data provider |
+| `GlutenFree.Databricks.AdoNet.Thrift` | Opt-in Thrift transport (real sessions), built on the [Apache Arrow ADBC Databricks driver](https://www.nuget.org/packages/Apache.Arrow.Adbc.Drivers.Databricks) |
 
 ## Features
 
@@ -26,6 +28,9 @@ with Apache Arrow result decoding. No ODBC Jank needed, pure .NET 8, async-first
 - **Works with Dapper** out of the box
 - **linq2db provider**: LINQ queries, LATERAL joins, window functions, CTEs, MERGE upserts,
   batched bulk copy
+- **Opt-in Thrift transport** (`GlutenFree.Databricks.AdoNet.Thrift`): real server-side
+  sessions (`USE`/session state persists across commands) — see
+  [Thrift transport](#thrift-transport-opt-in)
 
 ## Async vs. sync
 
@@ -100,6 +105,40 @@ db.GetTable<Order>()
     .Merge();
 ```
 
+## Thrift transport (opt-in)
+
+The default REST transport is stateless: each statement is standalone. The
+`GlutenFree.Databricks.AdoNet.Thrift` add-on package swaps in the Thrift (HiveServer2)
+protocol — the same wire protocol the official JDBC/ODBC drivers use — via the
+Databricks-maintained [Apache Arrow ADBC driver](https://www.nuget.org/packages/Apache.Arrow.Adbc.Drivers.Databricks).
+The whole ADO.NET/Dapper/linq2db surface works unchanged; opt in per connection before opening:
+
+```csharp
+using GlutenFree.Databricks.AdoNet.Thrift;
+
+await using var connection = new DatabricksConnection(connectionString)
+    .UseThriftTransport();
+await connection.OpenAsync();
+```
+
+What changes with Thrift:
+
+- **Real server-side sessions** — one Thrift session per open connection. Catalog/schema
+  context (`Catalog=`/`Schema=`, `ChangeDatabase`) is genuine session state, applied once
+  via `USE` instead of replayed per statement.
+- **Named parameters are emulated**: the ADBC driver exposes no native binding, so
+  parameterized statements are wrapped in `EXECUTE IMMEDIATE '<sql>' USING CAST(...) AS name`.
+  The server still resolves the `:name` markers (no client-side SQL rewriting of your
+  statement); values are rendered only inside strictly escaped literals with validated
+  names and type names.
+- **Result streaming** (CloudFetch, LZ4) is handled inside the ADBC driver and surfaces
+  through the same `DatabricksDataReader`.
+- The add-on carries heavier transitive dependencies (ApacheThrift and friends) — that's
+  why it ships as a separate opt-in package rather than in the core provider.
+
+The integration test suites can run against either transport: set
+`DATABRICKS_TRANSPORT=thrift` alongside the usual `DATABRICKS_*` variables.
+
 ## Connection string reference
 
 | Keyword | Default | Description |
@@ -136,9 +175,9 @@ db.GetTable<Order>()
 
 ## Current Limitations
 
-- **SQL warehouses only** — all-purpose clusters would require the Thrift protocol
-  (a transport abstraction exists for adding it later).
-  - Thrift is the target for next release.
+- **SQL warehouses only** — all-purpose cluster support via the Thrift add-on is a
+  possible future addition (the transport already speaks the right protocol; only the
+  endpoint/config surface is missing).
 - **No multi-statement transactions** — Databricks SQL doesn't support them;
   `BeginTransaction` throws `NotSupportedException`. (The linq2db provider declares
   `TransactionsSupported=false` so linq2db never attempts one.)
@@ -146,7 +185,8 @@ db.GetTable<Order>()
 - **`BINARY` parameters unsupported** by the Statement Execution API — pass hex/base64
   strings and decode in SQL.
 - Connection pooling is a no-op: the REST transport is stateless HTTP (HTTP handlers and
-  OAuth tokens are shared internally where safe).
+  OAuth tokens are shared internally where safe). The Thrift transport holds one session
+  per open connection instead.
 
 ## Testing
 

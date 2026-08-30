@@ -1,0 +1,24 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>GlutenFree.Databricks.AdoNet.Thrift</PackageId>
+    <Description>Thrift (HiveServer2) transport add-on for GlutenFree.Databricks.AdoNet, built on the Apache Arrow ADBC Databricks driver.</Description>
+    <PackageTags>databricks;ado.net;sql;data;provider;thrift;adbc</PackageTags>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="GlutenFree.Databricks.AdoNet.Thrift.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\GlutenFree.Databricks.AdoNet\GlutenFree.Databricks.AdoNet.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- ADBC packages are 0.x: the public API may change between minor versions,
+         so pin exactly and upgrade deliberately. -->
+    <PackageReference Include="Apache.Arrow.Adbc.Drivers.Databricks" Version="[0.23.0]" />
+  </ItemGroup>
+
+</Project>

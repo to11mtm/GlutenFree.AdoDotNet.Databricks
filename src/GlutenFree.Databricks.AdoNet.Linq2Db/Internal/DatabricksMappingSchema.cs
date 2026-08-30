@@ -60,12 +60,8 @@ public sealed class DatabricksMappingSchema : LockedMappingSchema
 
     private static void BuildBinaryLiteral(StringBuilder sb, byte[] value)
     {
-        sb.Append("X'");
-        foreach (var b in value)
-        {
-            sb.Append(b.ToString("X2", CultureInfo.InvariantCulture));
-        }
-
-        sb.Append('\'');
+        sb.Append("X'")
+            .AppendByteArrayAsHexViaLookup32(value)
+            .Append('\'');
     }
 }

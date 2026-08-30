@@ -31,7 +31,7 @@ public sealed class DatabricksDataReader : DbDataReader
     private int _highestChunkSeen = -1;
 
     // Exactly one of these is active per block.
-    private ArrowStreamReader? _arrowReader;
+    private IArrowArrayStream? _arrowReader;
     private RecordBatch? _arrowBatch;
     private IReadOnlyList<IReadOnlyList<string?>>? _jsonRows;
 
@@ -415,6 +415,7 @@ public sealed class DatabricksDataReader : DbDataReader
         // Also release the managed JSON/inline buffers: a closed reader that stays in
         // scope must not retain an entire result payload.
         _jsonRows = null;
+        _pendingInline?.ArrowStream?.Dispose();
         _pendingInline = null;
         _pendingLinks.Clear();
         _rowInBlock = -1;
@@ -501,6 +502,20 @@ public sealed class DatabricksDataReader : DbDataReader
                 var inline = _pendingInline;
                 _pendingInline = null;
                 _highestChunkSeen = Math.Max(_highestChunkSeen, inline.ChunkIndex);
+
+                if (inline.ArrowStream is { } stream)
+                {
+                    var batch = await stream.ReadNextRecordBatchAsync(cancellationToken).ConfigureAwait(false);
+                    if (batch is null)
+                    {
+                        stream.Dispose();
+                        continue;
+                    }
+
+                    _arrowReader = stream;
+                    SetArrowBatch(batch);
+                    return true;
+                }
 
                 if (inline.ExternalLinks is { Count: > 0 } links)
                 {
@@ -607,7 +622,7 @@ public sealed class DatabricksDataReader : DbDataReader
         // 1. More record batches within the current Arrow chunk stream?
         if (_arrowReader is not null)
         {
-            var next = _arrowReader.ReadNextRecordBatch();
+            var next = ReadNextBatchSync(_arrowReader);
             if (next is not null)
             {
                 SetArrowBatch(next);
@@ -628,6 +643,20 @@ public sealed class DatabricksDataReader : DbDataReader
                 var inline = _pendingInline;
                 _pendingInline = null;
                 _highestChunkSeen = Math.Max(_highestChunkSeen, inline.ChunkIndex);
+
+                if (inline.ArrowStream is { } stream)
+                {
+                    var batch = ReadNextBatchSync(stream);
+                    if (batch is null)
+                    {
+                        stream.Dispose();
+                        continue;
+                    }
+
+                    _arrowReader = stream;
+                    SetArrowBatch(batch);
+                    return true;
+                }
 
                 if (inline.ExternalLinks is { Count: > 0 } links)
                 {
@@ -714,6 +743,16 @@ public sealed class DatabricksDataReader : DbDataReader
         // Arrow IPC streams begin with a 4-byte continuation marker 0xFFFFFFFF
         // followed by the schema message; JSON chunks begin with '['.
         => bytes.Length >= 4 && bytes[0] == 0xFF && bytes[1] == 0xFF && bytes[2] == 0xFF && bytes[3] == 0xFF;
+
+    /// <summary>
+    /// Reads the next batch synchronously. <see cref="ArrowStreamReader"/> has a genuinely
+    /// synchronous read; other <see cref="IArrowArrayStream"/> implementations (streaming
+    /// transports) only expose the async form, so those block on it.
+    /// </summary>
+    private static RecordBatch? ReadNextBatchSync(IArrowArrayStream stream)
+        => stream is ArrowStreamReader reader
+            ? reader.ReadNextRecordBatch()
+            : stream.ReadNextRecordBatchAsync().GetAwaiter().GetResult();
 
     private void ThrowIfClosed()
     {
