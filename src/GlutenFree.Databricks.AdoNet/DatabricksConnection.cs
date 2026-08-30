@@ -279,12 +279,22 @@ public sealed class DatabricksConnection : DbConnection
     };
 
     private RestStatementTransport CreateRestTransport()
-        => new(
+    {
+        if (_builder.IsAllPurposeClusterPath)
+        {
+            throw new NotSupportedException(
+                "The HttpPath points at an all-purpose cluster, which only speaks the Thrift protocol. "
+                + "Install the GlutenFree.Databricks.AdoNet.Thrift package and call UseThriftTransport() "
+                + "before opening the connection; the default REST transport supports SQL warehouses only.");
+        }
+
+        return new(
             _builder.Host,
             _authenticator!,
             maxRetries: _builder.MaxRetries,
             retryBaseDelay: TimeSpan.FromMilliseconds(_builder.RetryBaseDelay),
             loggerFactory: LoggerFactory);
+    }
 
     private async ValueTask DisposeTransportAsync()
     {

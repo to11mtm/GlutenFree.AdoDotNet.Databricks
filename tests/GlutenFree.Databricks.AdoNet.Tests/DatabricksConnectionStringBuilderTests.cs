@@ -76,6 +76,56 @@ public class DatabricksConnectionStringBuilderTests
         Assert.Equal("explicit", b.EffectiveWarehouseId);
     }
 
+    [Theory]
+    [InlineData("/sql/protocolv1/o/12345/6789-cluster", true)]
+    [InlineData("sql/protocolv1/o/12345/6789-cluster", true)]
+    [InlineData("/SQL/ProtocolV1/o/12345/6789-cluster", true)]
+    [InlineData("/sql/1.0/warehouses/abcdef123", false)]
+    [InlineData("", false)]
+    public void Detects_all_purpose_cluster_paths(string httpPath, bool expected)
+    {
+        var b = new DatabricksConnectionStringBuilder
+        {
+            Host = "https://x.databricks.net",
+            HttpPath = httpPath,
+        };
+
+        Assert.Equal(expected, b.IsAllPurposeClusterPath);
+    }
+
+    [Fact]
+    public void Cluster_path_yields_no_warehouse_id()
+    {
+        var b = new DatabricksConnectionStringBuilder
+        {
+            Host = "https://x.databricks.net",
+            HttpPath = "/sql/protocolv1/o/12345/6789-cluster",
+        };
+
+        // A cluster id must never be mistaken for a warehouse id (the REST API
+        // would send it as warehouse_id and fail with a confusing server error).
+        Assert.Equal(string.Empty, b.EffectiveWarehouseId);
+    }
+
+    [Fact]
+    public void Validate_accepts_cluster_http_path_without_warehouse_id()
+    {
+        var b = new DatabricksConnectionStringBuilder(
+            "Host=https://x.databricks.net;HttpPath=/sql/protocolv1/o/12345/6789-cluster;Token=t");
+        b.Validate();
+    }
+
+    [Fact]
+    public void Opening_cluster_path_on_default_rest_transport_fails_with_guidance()
+    {
+        using var connection = new DatabricksConnection(
+            "Host=https://x.databricks.net;HttpPath=/sql/protocolv1/o/12345/6789-cluster;Token=t");
+
+        var ex = Assert.Throws<NotSupportedException>(connection.Open);
+        Assert.Contains("UseThriftTransport", ex.Message);
+        Assert.Contains("all-purpose cluster", ex.Message);
+    }
+
     [Fact]
     public void ToDisplayString_redacts_secrets()
     {

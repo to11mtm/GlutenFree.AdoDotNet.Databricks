@@ -126,6 +126,11 @@ What changes with Thrift:
 - **Real server-side sessions** — one Thrift session per open connection. Catalog/schema
   context (`Catalog=`/`Schema=`, `ChangeDatabase`) is genuine session state, applied once
   via `USE` instead of replayed per statement.
+- **All-purpose (interactive) clusters** — set `HttpPath` to the cluster endpoint
+  (`/sql/protocolv1/o/<org-id>/<cluster-id>`); cluster endpoints only speak Thrift, so the
+  default REST transport rejects them with guidance. (Warehouse behavior is verified live
+  in CI; cluster coverage is env-gated via `DATABRICKS_CLUSTER_HTTP_PATH` since Free
+  Edition workspaces have no all-purpose clusters.)
 - **Named parameters are emulated**: the ADBC driver exposes no native binding, so
   parameterized statements are wrapped in `EXECUTE IMMEDIATE '<sql>' USING CAST(...) AS name`.
   The server still resolves the `:name` markers (no client-side SQL rewriting of your
@@ -144,7 +149,7 @@ The integration test suites can run against either transport: set
 | Keyword | Default | Description |
 |---|---|---|
 | `Host` | *(required)* | Workspace URL, e.g. `https://adb-123.azuredatabricks.net` |
-| `WarehouseId` or `HttpPath` | *(required)* | SQL warehouse id, or its HTTP path (`/sql/1.0/warehouses/<id>`) |
+| `WarehouseId` or `HttpPath` | *(required)* | SQL warehouse id, or its HTTP path (`/sql/1.0/warehouses/<id>`); with the Thrift add-on, `HttpPath` may also be an all-purpose cluster endpoint (`/sql/protocolv1/o/<org-id>/<cluster-id>`) |
 | `AuthType` | `Pat` | `Pat` or `OAuthM2M` |
 | `Token` | — | Personal access token (when `AuthType=Pat`) |
 | `ClientId` / `ClientSecret` | — | Service principal credentials (when `AuthType=OAuthM2M`) |
@@ -175,9 +180,9 @@ The integration test suites can run against either transport: set
 
 ## Current Limitations
 
-- **SQL warehouses only** — all-purpose cluster support via the Thrift add-on is a
-  possible future addition (the transport already speaks the right protocol; only the
-  endpoint/config surface is missing).
+- **The default REST transport is SQL-warehouse-only** — all-purpose (interactive)
+  clusters only speak Thrift; use the `GlutenFree.Databricks.AdoNet.Thrift` add-on with a
+  cluster `HttpPath` (see [Thrift transport](#thrift-transport-opt-in)).
 - **No multi-statement transactions** — Databricks SQL doesn't support them;
   `BeginTransaction` throws `NotSupportedException`. (The linq2db provider declares
   `TransactionsSupported=false` so linq2db never attempts one.)

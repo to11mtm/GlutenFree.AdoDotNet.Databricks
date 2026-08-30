@@ -33,6 +33,10 @@ public static class DatabricksConnectionThriftExtensions
     {
         var settings = connection.Settings;
 
+        // An explicit HttpPath is passed through verbatim — this is how all-purpose
+        // cluster endpoints (/sql/protocolv1/o/<org-id>/<cluster-id>) are reached,
+        // since only the Thrift protocol supports them. Otherwise derive the SQL
+        // warehouse path from the warehouse id.
         var httpPath = settings.HttpPath.Length > 0
             ? settings.HttpPath
             : $"/sql/1.0/warehouses/{settings.EffectiveWarehouseId}";

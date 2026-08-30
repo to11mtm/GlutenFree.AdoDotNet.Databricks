@@ -193,8 +193,18 @@ public sealed class DatabricksConnectionStringBuilder : DbConnectionStringBuilde
     }
 
     /// <summary>
+    /// True when <see cref="HttpPath"/> points at an all-purpose (interactive) cluster
+    /// (<c>/sql/protocolv1/o/&lt;org-id&gt;/&lt;cluster-id&gt;</c>) rather than a SQL warehouse.
+    /// Cluster endpoints only speak the Thrift protocol, so they require the
+    /// <c>GlutenFree.Databricks.AdoNet.Thrift</c> transport add-on.
+    /// </summary>
+    public bool IsAllPurposeClusterPath
+        => HttpPath.TrimStart('/').StartsWith("sql/protocolv1/", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// The effective warehouse id, resolved from <see cref="WarehouseId"/> or parsed
-    /// from the trailing segment of <see cref="HttpPath"/>.
+    /// from the trailing segment of a warehouse-shaped <see cref="HttpPath"/>. Empty for
+    /// all-purpose cluster paths — a cluster id is not a warehouse id.
     /// </summary>
     public string EffectiveWarehouseId
     {
@@ -207,7 +217,7 @@ public sealed class DatabricksConnectionStringBuilder : DbConnectionStringBuilde
             }
 
             var httpPath = HttpPath;
-            if (httpPath.Length > 0)
+            if (httpPath.Length > 0 && !IsAllPurposeClusterPath)
             {
                 var lastSlash = httpPath.TrimEnd('/').LastIndexOf('/');
                 return lastSlash >= 0 ? httpPath.TrimEnd('/')[(lastSlash + 1)..] : httpPath;
@@ -264,9 +274,11 @@ public sealed class DatabricksConnectionStringBuilder : DbConnectionStringBuilde
                 "Bearer credentials must never be sent over plaintext http.");
         }
 
-        if (EffectiveWarehouseId.Length == 0)
+        if (EffectiveWarehouseId.Length == 0 && !IsAllPurposeClusterPath)
         {
-            throw new ArgumentException("Connection string must specify 'WarehouseId' or 'HttpPath' identifying a SQL warehouse.");
+            throw new ArgumentException(
+                "Connection string must specify 'WarehouseId' or 'HttpPath' identifying a SQL warehouse "
+                + "(or an all-purpose cluster HttpPath, which requires the Thrift transport add-on).");
         }
 
         switch (AuthType)

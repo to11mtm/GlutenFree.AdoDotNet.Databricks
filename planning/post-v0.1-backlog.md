@@ -36,7 +36,10 @@ the provider keeps feature parity:**
   add-on wrapping the ADBC Databricks driver — see [thrift-transport-plan.md](thrift-transport-plan.md)):
   - `Transport=Thrift` connection-string switch (needs a transport registration mechanism,
     since the base package cannot reference the add-on; today opt-in is `UseThriftTransport()`).
-  - All-purpose cluster support (`/sql/protocolv1/...` HTTP paths + config surface).
+  - ~~All-purpose cluster support~~ — **shipped**: cluster `HttpPath` flows through the
+    Thrift add-on; the REST transport rejects cluster paths with guidance. Live coverage is
+    env-gated (`DATABRICKS_CLUSTER_HTTP_PATH`) and still needs a run against a real
+    all-purpose cluster (Free Edition has none).
   - Native `TSparkParameter` binding if upstream ADBC ever exposes it (replacing the
     `EXECUTE IMMEDIATE` emulation).
   - Thrift metadata RPCs (`GetCatalogs`/`GetSchemas`/`GetTables`/`GetColumns`) for `GetSchema`.

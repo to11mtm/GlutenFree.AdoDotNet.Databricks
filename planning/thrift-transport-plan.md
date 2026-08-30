@@ -305,5 +305,7 @@ done, dual-transport integration run pending a live warehouse.
    Arrow→Databricks type-name reconstruction is confirmed against
    `DatabricksTypeMap`); Thrift-only session-semantics tests (catalog/schema
    persist across commands; `ChangeDatabase` switches the live session).
-5. **Stretch:** all-purpose cluster support, native named parameters, Thrift
-   metadata RPCs for `GetSchema`, session-conf passthrough.
+5. **Stretch:** ~~all-purpose cluster support~~ (done — cluster `HttpPath` passes through
+   the add-on, REST transport rejects cluster paths with guidance, env-gated live tests
+   via `DATABRICKS_CLUSTER_HTTP_PATH`; pending a run against a real cluster), native
+   named parameters, Thrift metadata RPCs for `GetSchema`, session-conf passthrough.
