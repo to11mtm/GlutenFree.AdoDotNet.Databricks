@@ -46,7 +46,7 @@ public sealed class Linq2DbIntegrationTests : IAsyncLifetime
             return;
         }
 
-        _connection = new DatabricksConnection(IntegrationConfig.ConnectionString);
+        _connection = IntegrationConfig.CreateConnection();
         await _connection.OpenAsync();
         await IntegrationConfig.SweepStaleSchemasAsync(_connection);
         await IntegrationConfig.EnsureVersionedSchemaAsync(

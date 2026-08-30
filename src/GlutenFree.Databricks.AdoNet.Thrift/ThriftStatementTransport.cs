@@ -120,11 +120,11 @@ public sealed class ThriftStatementTransport : IDatabricksTransport
             return await BuildResponseAsync(statementId, statement, result, cancellationToken)
                 .ConfigureAwait(false);
         }
-        catch
+        catch (Exception ex)
         {
             _activeStatements.TryRemove(statementId, out _);
             statement.Dispose();
-            throw;
+            throw TranslateOrRethrow(ex, statementId);
         }
     }
 
@@ -152,13 +152,23 @@ public sealed class ThriftStatementTransport : IDatabricksTransport
             return BuildResponseAsync(statementId, statement, result, CancellationToken.None)
                 .GetAwaiter().GetResult();
         }
-        catch
+        catch (Exception ex)
         {
             _activeStatements.TryRemove(statementId, out _);
             statement.Dispose();
-            throw;
+            throw TranslateOrRethrow(ex, statementId);
         }
     }
+
+    /// <summary>
+    /// Surfaces ADBC driver failures as <see cref="DatabricksException"/> so callers see
+    /// the same exception type on both transports. Cancellation and existing
+    /// <see cref="DatabricksException"/>s pass through unchanged.
+    /// </summary>
+    private static Exception TranslateOrRethrow(Exception ex, string statementId)
+        => ex is DatabricksException or OperationCanceledException
+            ? ex
+            : new DatabricksException(ex.Message, ex) { StatementId = statementId };
 
     /// <inheritdoc />
     /// <remarks>
@@ -255,13 +265,20 @@ public sealed class ThriftStatementTransport : IDatabricksTransport
             ? cancellationToken.Register(static s => TryCancel((AdbcStatement)s!), statement)
             : default;
 
-        if (sync)
+        try
         {
-            statement.ExecuteUpdate();
+            if (sync)
+            {
+                statement.ExecuteUpdate();
+            }
+            else
+            {
+                await statement.ExecuteUpdateAsync().ConfigureAwait(false);
+            }
         }
-        else
+        catch (Exception ex) when (ex is not DatabricksException and not OperationCanceledException)
         {
-            await statement.ExecuteUpdateAsync().ConfigureAwait(false);
+            throw new DatabricksException($"Failed to apply session context '{sql}': {ex.Message}", ex);
         }
 
         cancellationToken.ThrowIfCancellationRequested();
@@ -269,17 +286,13 @@ public sealed class ThriftStatementTransport : IDatabricksTransport
 
     private AdbcStatement CreateAdbcStatement(StatementRequest request, TimeSpan commandTimeout)
     {
-        if (request.Parameters is { Count: > 0 })
-        {
-            throw new NotSupportedException(
-                "The Thrift transport does not support named parameters yet; use the REST transport for parameterized statements.");
-        }
-
         var statement = _connection.CreateStatement();
         try
         {
             ApplyTimeout(statement, commandTimeout);
-            statement.SqlQuery = request.Statement;
+            statement.SqlQuery = request.Parameters is { Count: > 0 } parameters
+                ? BuildExecuteImmediate(request.Statement, parameters)
+                : request.Statement;
             return statement;
         }
         catch
@@ -288,6 +301,80 @@ public sealed class ThriftStatementTransport : IDatabricksTransport
             throw;
         }
     }
+
+    /// <summary>
+    /// Emulates server-side named parameters: the ADBC driver exposes no parameter binding,
+    /// so the statement is wrapped in <c>EXECUTE IMMEDIATE '&lt;sql&gt;' USING ... AS name</c>.
+    /// The server resolves the <c>:name</c> markers natively (no client-side SQL parsing);
+    /// values are rendered exclusively as escaped string literals inside <c>CAST</c>
+    /// expressions, and type names are validated against a strict shape, so no user-supplied
+    /// text can escape a literal.
+    /// </summary>
+    internal static string BuildExecuteImmediate(
+        string statement, IReadOnlyList<StatementParameter> parameters)
+    {
+        var sql = new System.Text.StringBuilder("EXECUTE IMMEDIATE '")
+            .Append(EscapeStringLiteral(statement))
+            .Append("' USING ");
+
+        for (var i = 0; i < parameters.Count; i++)
+        {
+            var parameter = parameters[i];
+            var name = parameter.Name;
+            if (!IsValidParameterName(name))
+            {
+                throw new DatabricksException(
+                    $"Parameter name '{name}' is not a valid identifier (letters, digits and underscores only).");
+            }
+
+            var typeName = parameter.Type ?? "STRING";
+            if (!IsValidTypeName(typeName))
+            {
+                throw new DatabricksException($"Parameter '{name}' has an unsupported type name '{typeName}'.");
+            }
+
+            if (i > 0)
+            {
+                sql.Append(", ");
+            }
+
+            if (parameter.Value is null)
+            {
+                sql.Append("CAST(NULL AS ").Append(typeName).Append(')');
+            }
+            else
+            {
+                sql.Append("CAST('").Append(EscapeStringLiteral(parameter.Value))
+                    .Append("' AS ").Append(typeName).Append(')');
+            }
+
+            sql.Append(" AS ").Append(name);
+        }
+
+        return sql.ToString();
+    }
+
+    /// <summary>
+    /// Escapes a Databricks SQL single-quoted string literal. Backslash must be escaped
+    /// too: Spark SQL treats it as an escape character inside string literals by default.
+    /// </summary>
+    private static string EscapeStringLiteral(string value)
+        => value.Replace("\\", "\\\\").Replace("'", "\\'");
+
+    private static bool IsValidParameterName(string name)
+    {
+        if (name.Length == 0 || (!char.IsAsciiLetter(name[0]) && name[0] != '_'))
+        {
+            return false;
+        }
+
+        return name.All(c => char.IsAsciiLetterOrDigit(c) || c == '_');
+    }
+
+    /// <summary>Accepts <c>NAME</c> or <c>NAME(p)</c>/<c>NAME(p,s)</c> shapes only.</summary>
+    private static bool IsValidTypeName(string typeName)
+        => System.Text.RegularExpressions.Regex.IsMatch(
+            typeName, @"^[A-Za-z_]+(\(\d{1,3}(,\d{1,3})?\))?$");
 
     private static void ApplyTimeout(AdbcStatement statement, TimeSpan commandTimeout)
     {

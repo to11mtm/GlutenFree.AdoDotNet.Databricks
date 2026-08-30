@@ -26,7 +26,7 @@ public sealed class DatabricksIntegrationTests : IAsyncLifetime
             return;
         }
 
-        _connection = new DatabricksConnection(IntegrationConfig.ConnectionString);
+        _connection = IntegrationConfig.CreateConnection();
         await _connection.OpenAsync();
         await IntegrationConfig.SweepStaleSchemasAsync(_connection);
         await IntegrationConfig.EnsureVersionedSchemaAsync(
@@ -139,8 +139,7 @@ public sealed class DatabricksIntegrationTests : IAsyncLifetime
     [IntegrationFact]
     public async Task Json_result_format_works()
     {
-        await using var connection = new DatabricksConnection(
-            IntegrationConfig.ConnectionString + ";ResultFormat=Json");
+        await using var connection = IntegrationConfig.CreateConnection("ResultFormat=Json");
         await connection.OpenAsync();
         await using var command = connection.CreateCommand();
         command.CommandText = "SELECT 7 AS v, 'x' AS s";

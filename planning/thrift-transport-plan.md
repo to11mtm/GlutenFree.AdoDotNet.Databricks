@@ -286,16 +286,24 @@ done, dual-transport integration run pending a live warehouse.
    `USE CATALOG`/`USE SCHEMA` replay on change, per-statement query timeout,
    cancel, sync parity via ADBC sync API, results delivered as a live
    `IArrowArrayStream` through the new `ResultData.ArrowStream` seam (reader
-   drains and disposes it; statement released on stream dispose). Named
-   parameters currently throw `NotSupportedException` (see risk 4).
+   drains and disposes it; statement released on stream dispose). ADBC driver
+   errors are translated to `DatabricksException`. **Named parameters** are
+   emulated with `EXECUTE IMMEDIATE '<sql>' USING CAST('<value>' AS <type>) AS name`:
+   the server resolves the `:name` markers natively (no client-side SQL
+   parsing), values appear only inside strictly-escaped string literals, and
+   names/type-names are validated against strict shapes — this sits below the
+   ADO.NET surface, so Dapper and linq2db work unchanged (verified live).
 3. **Wiring (done, first form):** `connection.UseThriftTransport()` extension
    (pre-open); connection-string `Transport=Thrift` switch deferred — the base
    package cannot reference the add-on, so a string-keyed switch needs a
    registration mechanism (future).
-4. **Test matrix (partial):** reader `ArrowStream` unit tests done. Pending:
-   dual-transport integration runs against a live warehouse, session-semantics
-   test, and verifying Arrow→Databricks type-name reconstruction
-   (TIMESTAMP_NTZ vs TIMESTAMP, DECIMAL precision/scale, intervals, complex
-   types) matches what `DatabricksTypeMap` expects.
+4. **Test matrix (done):** reader `ArrowStream` unit tests; EXECUTE IMMEDIATE
+   escaping/injection unit tests (`GlutenFree.Databricks.AdoNet.Thrift.Tests`);
+   dual-transport integration runs via `DATABRICKS_TRANSPORT=thrift` (verified
+   live 2026-08: 22/22 core integration and 27/27 linq2db integration pass on
+   both transports — including the full numeric/extended type matrix, so
+   Arrow→Databricks type-name reconstruction is confirmed against
+   `DatabricksTypeMap`); Thrift-only session-semantics tests (catalog/schema
+   persist across commands; `ChangeDatabase` switches the live session).
 5. **Stretch:** all-purpose cluster support, native named parameters, Thrift
    metadata RPCs for `GetSchema`, session-conf passthrough.

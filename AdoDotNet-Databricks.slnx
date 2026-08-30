@@ -19,10 +19,12 @@
     <Project Path="tests/GlutenFree.Databricks.AdoNet.Linq2Db.IntegrationTests/GlutenFree.Databricks.AdoNet.Linq2Db.IntegrationTests.csproj" />
     <Project Path="tests/GlutenFree.Databricks.AdoNet.Linq2Db.Tests/GlutenFree.Databricks.AdoNet.Linq2Db.Tests.csproj" />
     <Project Path="tests/GlutenFree.Databricks.AdoNet.Tests/GlutenFree.Databricks.AdoNet.Tests.csproj" />
+    <Project Path="tests/GlutenFree.Databricks.AdoNet.Thrift.Tests/GlutenFree.Databricks.AdoNet.Thrift.Tests.csproj" />
   </Folder>
   <Folder Name="/_/">
     <File Path=".editorconfig" />
     <File Path="LICENSE" />
+    <File Path="README.kawaii.md" />
     <File Path="README.md" />
   </Folder>
 </Solution>

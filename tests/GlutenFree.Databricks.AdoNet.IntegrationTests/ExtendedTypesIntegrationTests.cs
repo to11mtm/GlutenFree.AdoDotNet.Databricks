@@ -17,7 +17,7 @@ public sealed class ExtendedTypesIntegrationTests : IAsyncLifetime
             return;
         }
 
-        _connection = new DatabricksConnection(IntegrationConfig.ConnectionString);
+        _connection = IntegrationConfig.CreateConnection();
         await _connection.OpenAsync();
     }
 
