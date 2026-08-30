@@ -18,7 +18,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\GlutenFree.Databricks.AdoNet\GlutenFree.Databricks.AdoNet.csproj" />
+    <ProjectReference Include="..\..\src\GlutenFree.Databricks.AdoNet.Thrift\GlutenFree.Databricks.AdoNet.Thrift.csproj" />
+    <ProjectReference Include="..\GlutenFree.Databricks.AdoNet.IntegrationTests\GlutenFree.Databricks.AdoNet.IntegrationTests.csproj" />
+    <ProjectReference Include="..\GlutenFree.Databricks.AdoNet.Linq2Db.IntegrationTests\GlutenFree.Databricks.AdoNet.Linq2Db.IntegrationTests.csproj" />
   </ItemGroup>
 
 </Project>

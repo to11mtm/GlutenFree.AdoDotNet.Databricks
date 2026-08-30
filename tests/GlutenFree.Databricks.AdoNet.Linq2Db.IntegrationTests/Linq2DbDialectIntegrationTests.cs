@@ -11,7 +11,7 @@ namespace GlutenFree.Databricks.AdoNet.Linq2Db.IntegrationTests;
 /// LATERAL joins, MERGE, bulk copy, window functions, and CTEs.
 /// </summary>
 [Trait("Category", "Integration")]
-public sealed class Linq2DbDialectIntegrationTests : IAsyncLifetime
+public class Linq2DbDialectIntegrationTests : IAsyncLifetime
 {
     private const string Catalog = "workspace";
     private const string Schema = "adodotnet_l2dbx_v1";

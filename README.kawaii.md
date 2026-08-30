@@ -130,6 +130,21 @@ What changes with Thrift, nya? 🐱
 - **Real server-side sessions** 🏠 — one Thrift session per open connection. Catalog/schema
   context (`Catalog=`/`Schema=`, `ChangeDatabase`) is genuine session state, applied once
   via `USE` instead of replayed per statement. So efficient!
+- **All-purpose (interactive) clusters** 🖥️ — set `HttpPath` to the cluster endpoint
+  (`/sql/protocolv1/o/<org-id>/<cluster-id>`); cluster endpoints only speak Thrift, so the
+  default REST transport rejects them with helpful guidance (no cryptic errors, uwu!).
+
+  > **⚠️ Cluster support is untested against a live cluster, gomen!** Our development and CI
+  > environments run on Databricks Free Edition, which does not offer all-purpose
+  > clusters, so we currently have no way to fully test this path end-to-end (warehouse
+  > behavior *is* verified live; cluster tests are env-gated via
+  > `DATABRICKS_CLUSTER_HTTP_PATH` and self-skip without one). If you hit issues testing
+  > against a cluster, please [open an issue](../../issues): we're super happy to prepare
+  > fix branches and draft PRs for you to test against your cluster — we just can't
+  > finalize a fix ourselves without a kind senpai verifying it live! (｡•́︿•̀｡) Likewise,
+  > if you open a PR, we'll gladly review it and run everything we *can* test (warehouse
+  > paths, CI) against your branch~ **Pull requests from users who can test against real
+  > clusters are very very welcome**! Arigatou~ 🙏💕
 - **Named parameters are emulated** 🎭: the ADBC driver exposes no native binding, so
   parameterized statements are wrapped in `EXECUTE IMMEDIATE '<sql>' USING CAST(...) AS name`.
   The server still resolves the `:name` markers (no client-side SQL rewriting of your
@@ -141,15 +156,20 @@ What changes with Thrift, nya? 🐱
   why it ships as a separate opt-in package rather than in the core provider. Keeping the
   core light and fluffy! ☁️
 
-The integration test suites can run against either transport: set
-`DATABRICKS_TRANSPORT=thrift` alongside the usual `DATABRICKS_*` variables~ 🧪
+Thrift integration coverage lives in its very own project,
+`GlutenFree.Databricks.AdoNet.Thrift.IntegrationTests`, which re-runs the shared REST
+integration suites **and the linq2db data-provider suites** over Thrift (via
+subclassing — no duplicated test code, so DRY and tidy~! 🧹✨) plus Thrift-only
+session-semantics tests. Run it like any other test project with the usual
+`DATABRICKS_*` variables set; the base integration projects stay REST-only and have no
+dependency on the Thrift add-on. Clean separation, uwu! 🧪
 
 ## 📜 Connection string reference (the sacred scroll~) 📜
 
 | Keyword | Default | Description |
 |---|---|---|
 | `Host` | *(required!)* | Workspace URL, e.g. `https://adb-123.azuredatabricks.net` |
-| `WarehouseId` or `HttpPath` | *(required!)* | SQL warehouse id, or its HTTP path (`/sql/1.0/warehouses/<id>`) |
+| `WarehouseId` or `HttpPath` | *(required!)* | SQL warehouse id, or its HTTP path (`/sql/1.0/warehouses/<id>`); with the Thrift add-on, `HttpPath` may also be an all-purpose cluster endpoint (`/sql/protocolv1/o/<org-id>/<cluster-id>`) |
 | `AuthType` | `Pat` | `Pat` or `OAuthM2M` |
 | `Token` | — | Personal access token (when `AuthType=Pat`) |
 | `ClientId` / `ClientSecret` | — | Service principal credentials (when `AuthType=OAuthM2M`) |
@@ -180,9 +200,13 @@ The integration test suites can run against either transport: set
 
 ## 😿 Current Limitations (gomen nasai~) 😿
 
-- **SQL warehouses only** — all-purpose cluster support via the Thrift add-on is a
-  possible future addition (the transport already speaks the right protocol; only the
-  endpoint/config surface is missing). Ganbatte~ 💪
+- **The default REST transport is SQL-warehouse-only** — all-purpose (interactive)
+  clusters only speak Thrift; use the `GlutenFree.Databricks.AdoNet.Thrift` add-on with a
+  cluster `HttpPath` (see [Thrift transport](#-thrift-transport-opt-in-choo-choo-)). Note
+  that cluster support is currently untested against a live cluster (not available on Free
+  Edition, sob 😢) — report issues and we'll prepare test branches/draft PRs for you to
+  verify against your cluster! PRs from users with cluster access are super welcome, and
+  we'll test what we can (warehouse paths, CI) on your branch~ 🤝💕
 - **No multi-statement transactions** — Databricks SQL doesn't support them;
   `BeginTransaction` throws `NotSupportedException`. (The linq2db provider declares
   `TransactionsSupported=false` so linq2db never even tries, so smart!)

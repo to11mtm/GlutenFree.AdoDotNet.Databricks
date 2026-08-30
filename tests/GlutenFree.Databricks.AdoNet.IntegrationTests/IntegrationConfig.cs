@@ -1,7 +1,5 @@
 namespace GlutenFree.Databricks.AdoNet.IntegrationTests;
 
-using GlutenFree.Databricks.AdoNet.Thrift;
-
 /// <summary>
 /// Resolves integration test configuration from environment variables, falling back to
 /// User-scope variables on Windows (so freshly-set values are found without a new login).
@@ -15,11 +13,11 @@ public static class IntegrationConfig
     public static string? WarehouseId => Get("DATABRICKS_WAREHOUSE_ID");
 
     /// <summary>
-    /// Selects the transport for integration runs: unset/"rest" uses the default REST
-    /// transport; "thrift" opts every test connection into the Thrift add-on transport.
+    /// Hook applied to every connection created by <see cref="CreateConnection"/>. The
+    /// Thrift integration test project sets this (via a module initializer) to opt its
+    /// entire run into the Thrift transport; this base project runs plain REST.
     /// </summary>
-    public static bool UseThriftTransport =>
-        string.Equals(Get("DATABRICKS_TRANSPORT"), "thrift", StringComparison.OrdinalIgnoreCase);
+    public static Action<DatabricksConnection>? ConnectionCustomizer { get; set; }
 
     public static bool IsConfigured => Host is not null && Token is not null && WarehouseId is not null;
 
@@ -27,18 +25,14 @@ public static class IntegrationConfig
         $"Host={Host};WarehouseId={WarehouseId};Token={Token}";
 
     /// <summary>
-    /// Creates a connection honoring <c>DATABRICKS_TRANSPORT</c>, so the whole suite can be
-    /// run against either transport.
+    /// Creates a test connection, applying <see cref="ConnectionCustomizer"/> so the whole
+    /// shared suite can be re-run against another transport by a wrapping test project.
     /// </summary>
     public static DatabricksConnection CreateConnection(string? extraSettings = null)
     {
         var connection = new DatabricksConnection(
             extraSettings is null ? ConnectionString : ConnectionString + ";" + extraSettings);
-        if (UseThriftTransport)
-        {
-            connection.UseThriftTransport();
-        }
-
+        ConnectionCustomizer?.Invoke(connection);
         return connection;
     }
 

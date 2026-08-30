@@ -11,7 +11,7 @@ namespace GlutenFree.Databricks.AdoNet.Linq2Db.IntegrationTests;
 /// TIMESTAMP_NTZ, INTERVAL, ARRAY/MAP/STRUCT (as JSON strings), VARIANT, and CHAR/VARCHAR.
 /// </summary>
 [Trait("Category", "Integration")]
-public sealed class Linq2DbExtendedTypesIntegrationTests : IAsyncLifetime
+public class Linq2DbExtendedTypesIntegrationTests : IAsyncLifetime
 {
     private const string Catalog = "workspace";
     private const string Schema = "adodotnet_l2ext_v1";

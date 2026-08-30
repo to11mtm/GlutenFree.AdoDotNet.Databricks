@@ -12,7 +12,7 @@ namespace GlutenFree.Databricks.AdoNet.IntegrationTests;
 /// on cleanup (tables are never dropped, keeping the metastore table count constant).
 /// </summary>
 [Trait("Category", "Integration")]
-public sealed class DatabricksIntegrationTests : IAsyncLifetime
+public class DatabricksIntegrationTests : IAsyncLifetime
 {
     private const string Catalog = "workspace";
     private const string Schema = "adodotnet_it_v1";

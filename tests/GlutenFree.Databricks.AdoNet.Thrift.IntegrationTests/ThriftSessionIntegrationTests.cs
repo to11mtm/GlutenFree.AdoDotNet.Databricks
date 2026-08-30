@@ -1,4 +1,6 @@
-namespace GlutenFree.Databricks.AdoNet.IntegrationTests;
+using GlutenFree.Databricks.AdoNet.IntegrationTests;
+
+namespace GlutenFree.Databricks.AdoNet.Thrift.IntegrationTests;
 
 /// <summary>
 /// Session semantics that only hold on the Thrift transport: catalog/schema context is
@@ -8,7 +10,7 @@ namespace GlutenFree.Databricks.AdoNet.IntegrationTests;
 [Trait("Category", "Integration")]
 public sealed class ThriftSessionIntegrationTests
 {
-    [ThriftIntegrationFact]
+    [IntegrationFact]
     public async Task Catalog_and_schema_persist_across_commands()
     {
         await using var connection = IntegrationConfig.CreateConnection(
@@ -35,7 +37,7 @@ public sealed class ThriftSessionIntegrationTests
         }
     }
 
-    [ThriftIntegrationFact]
+    [IntegrationFact]
     public async Task ChangeDatabase_switches_session_schema()
     {
         await using var connection = IntegrationConfig.CreateConnection("Catalog=workspace");
@@ -48,23 +50,5 @@ public sealed class ThriftSessionIntegrationTests
         await using var reader = await command.ExecuteReaderAsync();
         Assert.True(await reader.ReadAsync());
         Assert.Equal("information_schema", reader.GetString(0));
-    }
-}
-
-/// <summary>Runs only on live Thrift-transport runs (<c>DATABRICKS_TRANSPORT=thrift</c>).</summary>
-public sealed class ThriftIntegrationFactAttribute : FactAttribute
-{
-    public ThriftIntegrationFactAttribute()
-    {
-        if (!IntegrationConfig.IsConfigured)
-        {
-            Skip = "Set DATABRICKS_HOST, DATABRICKS_TOKEN and DATABRICKS_WAREHOUSE_ID to run integration tests.";
-        }
-        else if (!IntegrationConfig.UseThriftTransport)
-        {
-            Skip = "Set DATABRICKS_TRANSPORT=thrift to run Thrift session-semantics tests.";
-        }
-
-        Timeout = 300_000;
     }
 }

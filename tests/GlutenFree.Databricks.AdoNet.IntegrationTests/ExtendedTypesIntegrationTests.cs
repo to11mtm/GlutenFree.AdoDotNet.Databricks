@@ -6,7 +6,7 @@ namespace GlutenFree.Databricks.AdoNet.IntegrationTests;
 /// GEOGRAPHY/GEOMETRY are intentionally out of scope (preview types, not broadly enabled).
 /// </summary>
 [Trait("Category", "Integration")]
-public sealed class ExtendedTypesIntegrationTests : IAsyncLifetime
+public class ExtendedTypesIntegrationTests : IAsyncLifetime
 {
     private DatabricksConnection _connection = null!;
 

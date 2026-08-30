@@ -29,7 +29,10 @@ public sealed class ThriftStatementTransport : IDatabricksTransport
     /// Creates a transport with an open Thrift session against the given warehouse.
     /// </summary>
     /// <param name="host">Workspace base URL (https).</param>
-    /// <param name="httpPath">Warehouse HTTP path, e.g. <c>/sql/1.0/warehouses/abc123</c>.</param>
+    /// <param name="httpPath">
+    /// Endpoint HTTP path: a SQL warehouse (<c>/sql/1.0/warehouses/&lt;id&gt;</c>) or an
+    /// all-purpose cluster (<c>/sql/protocolv1/o/&lt;org-id&gt;/&lt;cluster-id&gt;</c>).
+    /// </param>
     /// <param name="options">Authentication and driver options; see <see cref="ThriftTransportOptions"/>.</param>
     public ThriftStatementTransport(string host, string httpPath, ThriftTransportOptions options)
     {
