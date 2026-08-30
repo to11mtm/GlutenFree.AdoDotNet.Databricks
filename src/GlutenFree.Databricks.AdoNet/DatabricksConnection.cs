@@ -268,7 +268,9 @@ public sealed class DatabricksConnection : DbConnection
     private IDatabricksAuthenticator CreateAuthenticator() => _builder.AuthType switch
     {
         DatabricksAuthType.Pat => new PatAuthenticator(_builder.Token),
-        DatabricksAuthType.OAuthM2M => new OAuthM2MAuthenticator(_builder.Host, _builder.ClientId, _builder.ClientSecret),
+        // Shared per credential set: OAuth token caches survive across connections.
+        DatabricksAuthType.OAuthM2M => DatabricksSharedResources.GetOAuthAuthenticator(
+            _builder.Host, _builder.ClientId, _builder.ClientSecret),
         _ => throw new NotSupportedException($"AuthType '{_builder.AuthType}' is not supported."),
     };
 
@@ -288,11 +290,8 @@ public sealed class DatabricksConnection : DbConnection
             _transport = null;
         }
 
-        if (_authenticator is IDisposable disposableAuth)
-        {
-            disposableAuth.Dispose();
-        }
-
+        // Authenticators are process-shared (OAuth token caches survive across connections)
+        // and are never disposed here.
         _authenticator = null;
     }
 }

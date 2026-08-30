@@ -22,7 +22,6 @@ public sealed class RestStatementTransport : IDatabricksTransport, IDisposable
     private readonly Uri _baseUri;
     private readonly IDatabricksAuthenticator _authenticator;
     private readonly HttpClient _httpClient;
-    private readonly bool _ownsHttpClient;
     private readonly int _maxRetries;
     private readonly TimeSpan _retryBaseDelay;
     private readonly ILogger _logger;
@@ -31,7 +30,10 @@ public sealed class RestStatementTransport : IDatabricksTransport, IDisposable
     /// <summary>Creates a transport bound to a workspace.</summary>
     /// <param name="host">Workspace base URL.</param>
     /// <param name="authenticator">Bearer token source.</param>
-    /// <param name="httpClient">Optional HTTP client (caller-owned); created internally if omitted.</param>
+    /// <param name="httpClient">
+    /// Optional HTTP client (caller-owned; never disposed by the transport). The process-wide
+    /// shared client is used if omitted, so connections share one handler/connection pool.
+    /// </param>
     /// <param name="maxRetries">Maximum retries for 429/503 responses.</param>
     /// <param name="retryBaseDelay">Base delay for exponential backoff.</param>
     /// <param name="loggerFactory">Optional logger factory.</param>
@@ -57,11 +59,7 @@ public sealed class RestStatementTransport : IDatabricksTransport, IDisposable
         }
 
         _authenticator = authenticator;
-        _ownsHttpClient = httpClient is null;
-        _httpClient = httpClient ?? new HttpClient(new SocketsHttpHandler
-        {
-            PooledConnectionLifetime = TimeSpan.FromMinutes(5),
-        });
+        _httpClient = httpClient ?? DatabricksSharedResources.HttpClient;
         _maxRetries = maxRetries;
         _retryBaseDelay = retryBaseDelay ?? TimeSpan.FromMilliseconds(500);
         _logger = (loggerFactory ?? NullLoggerFactory.Instance).CreateLogger<RestStatementTransport>();
@@ -324,10 +322,8 @@ public sealed class RestStatementTransport : IDatabricksTransport, IDisposable
     /// <inheritdoc />
     public void Dispose()
     {
-        if (_ownsHttpClient)
-        {
-            _httpClient.Dispose();
-        }
+        // The HttpClient is either the process-wide shared client or caller-owned;
+        // the transport never disposes it.
     }
 
     private Uri StatementUri(string statementId)

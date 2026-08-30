@@ -16,7 +16,6 @@ public sealed class OAuthM2MAuthenticator : IDatabricksAuthenticator, IDisposabl
     private readonly Uri _tokenEndpoint;
     private readonly string _basicCredentials;
     private readonly HttpClient _httpClient;
-    private readonly bool _ownsHttpClient;
     private readonly TimeProvider _timeProvider;
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
 
@@ -54,8 +53,7 @@ public sealed class OAuthM2MAuthenticator : IDatabricksAuthenticator, IDisposabl
         }
 
         _basicCredentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{clientId}:{clientSecret}"));
-        _ownsHttpClient = httpClient is null;
-        _httpClient = httpClient ?? new HttpClient();
+        _httpClient = httpClient ?? DatabricksSharedResources.HttpClient;
         _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
@@ -180,10 +178,8 @@ public sealed class OAuthM2MAuthenticator : IDatabricksAuthenticator, IDisposabl
     /// <inheritdoc />
     public void Dispose()
     {
+        // The HttpClient is either the process-wide shared client or caller-owned;
+        // the authenticator never disposes it.
         _refreshLock.Dispose();
-        if (_ownsHttpClient)
-        {
-            _httpClient.Dispose();
-        }
     }
 }
