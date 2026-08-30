@@ -10,7 +10,7 @@ namespace GlutenFree.Databricks.AdoNet.IntegrationTests;
 public sealed class NumericTypesIntegrationTests : IAsyncLifetime
 {
     private const string Catalog = "workspace";
-    private readonly string _schema = $"adonet_num_{Guid.NewGuid():N}";
+    private readonly string _schema = IntegrationConfig.CreateSchemaName("num");
     private DatabricksConnection _connection = null!;
 
     public async Task InitializeAsync()
@@ -22,6 +22,7 @@ public sealed class NumericTypesIntegrationTests : IAsyncLifetime
 
         _connection = new DatabricksConnection(IntegrationConfig.ConnectionString);
         await _connection.OpenAsync();
+        await IntegrationConfig.SweepStaleSchemasAsync(_connection);
     }
 
     public async Task DisposeAsync()

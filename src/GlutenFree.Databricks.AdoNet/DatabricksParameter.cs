@@ -90,6 +90,68 @@ public sealed class DatabricksParameter : DbParameter
         };
     }
 
+    /// <summary>
+    /// Honors an explicitly assigned <see cref="DbType"/> by coercing the value to the
+    /// corresponding CLR type before wire-type inference (e.g. an <c>int</c> with
+    /// <see cref="DbType.Int64"/> is sent as BIGINT). <see cref="DbType.Object"/> (the
+    /// default) leaves the value untouched.
+    /// </summary>
+    private object CoerceToDbType(object value)
+    {
+        if (DbType == DbType.Object)
+        {
+            return value;
+        }
+
+        // Arbitrary-precision values must never be narrowed by a DbType hint.
+        if (value is System.Data.SqlTypes.SqlDecimal or DatabricksDecimal)
+        {
+            return value;
+        }
+
+        var invariant = CultureInfo.InvariantCulture;
+        return DbType switch
+        {
+            DbType.Boolean => Convert.ToBoolean(value, invariant),
+            DbType.SByte => Convert.ToSByte(value, invariant),
+            DbType.Byte => Convert.ToByte(value, invariant),
+            DbType.Int16 => Convert.ToInt16(value, invariant),
+            DbType.UInt16 => Convert.ToUInt16(value, invariant),
+            DbType.Int32 => Convert.ToInt32(value, invariant),
+            DbType.UInt32 => Convert.ToUInt32(value, invariant),
+            DbType.Int64 or DbType.UInt64 => Convert.ToInt64(value, invariant),
+            DbType.Single => Convert.ToSingle(value, invariant),
+            DbType.Double => Convert.ToDouble(value, invariant),
+            DbType.Decimal or DbType.Currency or DbType.VarNumeric => Convert.ToDecimal(value, invariant),
+            DbType.Date => value switch
+            {
+                DateOnly d => d,
+                DateTime dt => DateOnly.FromDateTime(dt),
+                DateTimeOffset dto => DateOnly.FromDateTime(dto.Date),
+                _ => DateOnly.Parse(Convert.ToString(value, invariant)!, invariant),
+            },
+            DbType.DateTime or DbType.DateTime2 => value switch
+            {
+                DateTime dt => dt,
+                DateOnly d => d.ToDateTime(TimeOnly.MinValue),
+                DateTimeOffset dto => dto.UtcDateTime,
+                _ => DateTime.Parse(Convert.ToString(value, invariant)!, invariant),
+            },
+            DbType.DateTimeOffset => value switch
+            {
+                DateTimeOffset dto => dto,
+                DateTime dt => new DateTimeOffset(dt.Kind == DateTimeKind.Unspecified
+                    ? DateTime.SpecifyKind(dt, DateTimeKind.Utc)
+                    : dt),
+                _ => DateTimeOffset.Parse(Convert.ToString(value, invariant)!, invariant),
+            },
+            DbType.Guid => value is Guid guid ? guid : Guid.Parse(Convert.ToString(value, invariant)!),
+            DbType.String or DbType.AnsiString or DbType.StringFixedLength
+                or DbType.AnsiStringFixedLength or DbType.Xml => Convert.ToString(value, invariant)!,
+            _ => value,
+        };
+    }
+
     private (string? Text, string? TypeName) FormatValue()
     {
         var value = Value;
@@ -98,6 +160,8 @@ public sealed class DatabricksParameter : DbParameter
             // A null value with an explicit type lets the server bind a typed NULL.
             return (null, DbTypeToDatabricksType());
         }
+
+        value = CoerceToDbType(value);
 
         return value switch
         {
@@ -120,13 +184,27 @@ public sealed class DatabricksParameter : DbParameter
                 dt.Kind == DateTimeKind.Unspecified ? "TIMESTAMP_NTZ" : "TIMESTAMP"),
             DateTimeOffset dto => (dto.ToString("yyyy-MM-dd HH:mm:ss.ffffffzzz", CultureInfo.InvariantCulture), "TIMESTAMP"),
             System.Data.SqlTypes.SqlDecimal sd => (sd.ToString(), $"DECIMAL({sd.Precision},{sd.Scale})"),
-            DatabricksDecimal dd => (dd.ToString(), $"DECIMAL({Math.Max(dd.Precision, dd.Scale + 1)},{dd.Scale})"),
+            DatabricksDecimal dd => FormatDatabricksDecimal(dd),
             byte[] => throw new NotSupportedException(
                 "BINARY parameters are not supported by the Databricks Statement Execution API. " +
                 "Consider passing a hex/base64 STRING and decoding in SQL."),
             _ => throw new NotSupportedException(
                 $"Values of type '{value.GetType()}' are not supported as Databricks parameters."),
         };
+    }
+
+    private static (string, string) FormatDatabricksDecimal(DatabricksDecimal value)
+    {
+        var precision = Math.Max(value.Precision, value.Scale + 1);
+        if (precision > 38)
+        {
+            // Fail locally and deterministically instead of letting the server reject DECIMAL(39+, ...).
+            throw new NotSupportedException(
+                $"Value '{value}' requires DECIMAL({precision},{value.Scale}), which exceeds Databricks' " +
+                "maximum precision of 38.");
+        }
+
+        return (value.ToString(), $"DECIMAL({precision},{value.Scale})");
     }
 
     private static (string, string) FormatDecimal(decimal value)

@@ -74,6 +74,10 @@ public sealed class DatabricksConnection : DbConnection
     /// <inheritdoc />
     public override ConnectionState State => _state;
 
+    /// <inheritdoc />
+    /// <remarks>Reflects the <c>ConnectTimeout</c> connection-string value enforced by Open.</remarks>
+    public override int ConnectionTimeout => _builder.ConnectTimeout;
+
     /// <summary>Default command timeout (seconds) inherited by commands created from this connection.</summary>
     public int DefaultCommandTimeout => _builder.CommandTimeout;
 

@@ -396,6 +396,7 @@ public sealed class DatabricksDataReader : DbDataReader
 
     /// <inheritdoc />
     /// <remarks>
+    /// Releases the current Arrow batch/stream immediately (same resources as Dispose).
     /// When the reader was created with <see cref="System.Data.CommandBehavior.CloseConnection"/>,
     /// closing it also closes the owning connection.
     /// </remarks>
@@ -407,6 +408,10 @@ public sealed class DatabricksDataReader : DbDataReader
         }
 
         _closed = true;
+        _arrowBatch?.Dispose();
+        _arrowBatch = null;
+        _arrowReader?.Dispose();
+        _arrowReader = null;
         _connectionToClose?.Close();
     }
 
@@ -415,8 +420,6 @@ public sealed class DatabricksDataReader : DbDataReader
     {
         if (disposing)
         {
-            _arrowBatch?.Dispose();
-            _arrowReader?.Dispose();
             Close();
         }
 

@@ -15,7 +15,7 @@ namespace GlutenFree.Databricks.AdoNet.Linq2Db.IntegrationTests;
 public sealed class Linq2DbSqlBitsIntegrationTests : IAsyncLifetime
 {
     private const string Catalog = "workspace";
-    private readonly string _schema = $"adonet_l2sql_{Guid.NewGuid():N}";
+    private readonly string _schema = IntegrationConfig.CreateSchemaName("l2sql");
     private DatabricksConnection _connection = null!;
 
     private sealed class Customer
@@ -71,6 +71,7 @@ public sealed class Linq2DbSqlBitsIntegrationTests : IAsyncLifetime
 
         _connection = new DatabricksConnection(IntegrationConfig.ConnectionString);
         await _connection.OpenAsync();
+        await IntegrationConfig.SweepStaleSchemasAsync(_connection);
         await ExecuteAsync($"CREATE SCHEMA IF NOT EXISTS {Catalog}.{_schema}");
         await ExecuteAsync($"CREATE TABLE {Catalog}.{_schema}.t_customers (id BIGINT, name STRING)");
         await ExecuteAsync($"CREATE TABLE {Catalog}.{_schema}.t_orders (id BIGINT, customer_id BIGINT, amount DECIMAL(10,2))");

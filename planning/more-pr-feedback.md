@@ -28,3 +28,18 @@ src/GlutenFree.Databricks.AdoNet/DatabricksCommand.cs:157
 src/GlutenFree.Databricks.AdoNet/DatabricksTypeMap.cs:95
 
     The Arrow path always returns UtcDateTime, including for TIMESTAMP_NTZ. That causes an NTZ value read from Databricks to be rebound as a zoned TIMESTAMP and can alter its wall-clock meaning. Branch on the manifest type and return an Unspecified DateTime for NTZ.
+
+---
+
+## Status: ALL RESOLVED (2026-08-29)
+
+1. ConnectionTimeout: overridden to return the builder's ConnectTimeout.
+2. Reader Close(): now releases Arrow batch/stream (same resources as Dispose).
+3. Explicit DbType: CoerceToDbType converts non-null values before inference (SqlDecimal/DatabricksDecimal exempt from narrowing).
+4. DatabricksDecimal.Precision: exact digit count (no floating Log10).
+5. DECIMAL(39+) parameters: NotSupportedException thrown locally.
+6. Nested Arrow values: intervals/durations render as interval strings; unknown types throw NotSupportedException (no fabricated JSON).
+7. ExecuteDbDataReaderAsync behavior pass-through: already fixed in prior round (verified).
+8. Arrow TIMESTAMP_NTZ Unspecified kind: already fixed in prior round (verified).
+
+Tests: ReviewHardening2Tests (13 new).

@@ -285,9 +285,27 @@ internal static class DatabricksTypeMap
                 break;
             }
 
-            default:
-                writer.WriteStringValue(array.GetType().Name);
+            case YearMonthIntervalArray a:
+                writer.WriteStringValue(FormatYearMonthInterval(a.GetValue(index)!.Value.Months));
                 break;
+            case DayTimeIntervalArray a:
+            {
+                var interval = a.GetValue(index)!.Value;
+                writer.WriteStringValue(FormatDayTimeInterval(interval.Days, interval.Milliseconds * 1_000_000L));
+                break;
+            }
+
+            case MonthDayNanosecondIntervalArray a:
+                writer.WriteStringValue(FormatMonthDayNanoInterval(a.GetValue(index)!.Value));
+                break;
+            case DurationArray a:
+                writer.WriteStringValue(FormatDayTimeInterval(0, ToNanoseconds(a, index)));
+                break;
+
+            default:
+                // Never fabricate JSON (e.g. a CLR type name) for values we cannot render.
+                throw new NotSupportedException(
+                    $"Arrow array type '{array.GetType().Name}' is not supported inside a complex value.");
         }
     }
 

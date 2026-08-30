@@ -49,14 +49,9 @@ public readonly struct DatabricksDecimal
         get
         {
             var abs = BigInteger.Abs(UnscaledValue);
-            if (abs.IsZero)
-            {
-                return 1;
-            }
-
-            var digits = (int)Math.Ceiling(BigInteger.Log10(abs));
-            // Log10 of an exact power of ten needs a correction.
-            return BigInteger.Pow(10, digits) <= abs ? digits + 1 : digits;
+            // Count invariant decimal digits directly: floating-point Log10 can round to
+            // the wrong side of an integer near powers of ten.
+            return abs.IsZero ? 1 : abs.ToString(CultureInfo.InvariantCulture).Length;
         }
     }
 

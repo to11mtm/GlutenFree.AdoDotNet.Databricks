@@ -27,6 +27,59 @@ public static class IntegrationConfig
 
         return string.IsNullOrEmpty(value) ? null : value;
     }
+
+    private static int s_swept;
+
+    /// <summary>
+    /// Creates a schema name carrying a creation timestamp (hex unix seconds) so aborted
+    /// runs can be swept by age: <c>adonet_&lt;hexSeconds&gt;_&lt;tag&gt;_&lt;guid&gt;</c>.
+    /// </summary>
+    public static string CreateSchemaName(string tag)
+        => $"adonet_{DateTimeOffset.UtcNow.ToUnixTimeSeconds():x}_{tag}_{Guid.NewGuid():N}";
+
+    /// <summary>
+    /// Drops leftover <c>adonet_*</c> schemas from previous aborted runs (older than two
+    /// hours, or legacy names without a timestamp). Runs once per process; keeps killed
+    /// test runs from leaking tables against the metastore quota. Note: Databricks retains
+    /// dropped managed tables for ~7 days (UNDROP), and those still count toward the
+    /// 500-tables-per-metastore quota until purged automatically.
+    /// </summary>
+    public static async Task SweepStaleSchemasAsync(DatabricksConnection connection)
+    {
+        if (Interlocked.Exchange(ref s_swept, 1) == 1)
+        {
+            return;
+        }
+
+        var stale = new List<string>();
+        await using (var list = connection.CreateCommand())
+        {
+            list.CommandText =
+                "SELECT schema_name FROM workspace.information_schema.schemata WHERE schema_name LIKE 'adonet%'";
+            await using var reader = await list.ExecuteReaderAsync();
+            var cutoff = DateTimeOffset.UtcNow.AddHours(-2).ToUnixTimeSeconds();
+            while (await reader.ReadAsync())
+            {
+                var name = reader.GetString(0);
+                var parts = name.Split('_');
+                var hasTimestamp = parts.Length >= 3
+                    && long.TryParse(parts[1], System.Globalization.NumberStyles.HexNumber, null, out var created)
+                    && created >= cutoff;
+                if (!hasTimestamp)
+                {
+                    // Legacy names (no timestamp) or older than the cutoff: stale leftovers.
+                    stale.Add(name);
+                }
+            }
+        }
+
+        foreach (var name in stale)
+        {
+            await using var drop = connection.CreateCommand();
+            drop.CommandText = $"DROP SCHEMA IF EXISTS workspace.`{name}` CASCADE";
+            await drop.ExecuteNonQueryAsync();
+        }
+    }
 }
 
 /// <summary>A fact that is skipped unless the DATABRICKS_* environment variables are set.</summary>

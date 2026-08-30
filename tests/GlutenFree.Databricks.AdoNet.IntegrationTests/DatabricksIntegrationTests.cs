@@ -14,7 +14,7 @@ namespace GlutenFree.Databricks.AdoNet.IntegrationTests;
 public sealed class DatabricksIntegrationTests : IAsyncLifetime
 {
     private const string Catalog = "workspace";
-    private readonly string _schema = $"adonet_it_{Guid.NewGuid():N}";
+    private readonly string _schema = IntegrationConfig.CreateSchemaName("it");
     private DatabricksConnection _connection = null!;
 
     public async Task InitializeAsync()
@@ -26,6 +26,7 @@ public sealed class DatabricksIntegrationTests : IAsyncLifetime
 
         _connection = new DatabricksConnection(IntegrationConfig.ConnectionString);
         await _connection.OpenAsync();
+        await IntegrationConfig.SweepStaleSchemasAsync(_connection);
         await ExecuteAsync($"CREATE SCHEMA IF NOT EXISTS {Catalog}.{_schema}");
     }
 

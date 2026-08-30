@@ -14,7 +14,7 @@ namespace GlutenFree.Databricks.AdoNet.Linq2Db.IntegrationTests;
 public sealed class Linq2DbExtendedTypesIntegrationTests : IAsyncLifetime
 {
     private const string Catalog = "workspace";
-    private readonly string _schema = $"adonet_l2ext_{Guid.NewGuid():N}";
+    private readonly string _schema = IntegrationConfig.CreateSchemaName("l2ext");
     private DatabricksConnection _connection = null!;
 
     private sealed class ExtRow
@@ -49,6 +49,7 @@ public sealed class Linq2DbExtendedTypesIntegrationTests : IAsyncLifetime
 
         _connection = new DatabricksConnection(IntegrationConfig.ConnectionString);
         await _connection.OpenAsync();
+        await IntegrationConfig.SweepStaleSchemasAsync(_connection);
         await ExecuteAsync($"CREATE SCHEMA IF NOT EXISTS {Catalog}.{_schema}");
         await ExecuteAsync(
             $"CREATE TABLE {Catalog}.{_schema}.t_ext (" +
