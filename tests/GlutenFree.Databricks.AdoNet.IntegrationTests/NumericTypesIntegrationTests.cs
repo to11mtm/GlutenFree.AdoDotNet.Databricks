@@ -7,7 +7,7 @@ namespace GlutenFree.Databricks.AdoNet.IntegrationTests;
 /// specials, and DECIMAL precision/scale extremes including DECIMAL(38,0).
 /// </summary>
 [Trait("Category", "Integration")]
-public sealed class NumericTypesIntegrationTests : IAsyncLifetime
+public class NumericTypesIntegrationTests : IAsyncLifetime
 {
     private const string Catalog = "workspace";
     private const string Schema = "adodotnet_num_v1";

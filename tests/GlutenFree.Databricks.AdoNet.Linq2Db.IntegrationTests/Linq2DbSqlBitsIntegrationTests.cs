@@ -12,7 +12,7 @@ namespace GlutenFree.Databricks.AdoNet.Linq2Db.IntegrationTests;
 /// subqueries, IN/NOT IN, UPDATE/DELETE, and literal rendering of every mapped type.
 /// </summary>
 [Trait("Category", "Integration")]
-public sealed class Linq2DbSqlBitsIntegrationTests : IAsyncLifetime
+public class Linq2DbSqlBitsIntegrationTests : IAsyncLifetime
 {
     private const string Catalog = "workspace";
     private const string Schema = "adodotnet_l2sql_v1";

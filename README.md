@@ -151,8 +151,12 @@ What changes with Thrift:
 - The add-on carries heavier transitive dependencies (ApacheThrift and friends) — that's
   why it ships as a separate opt-in package rather than in the core provider.
 
-The integration test suites can run against either transport: set
-`DATABRICKS_TRANSPORT=thrift` alongside the usual `DATABRICKS_*` variables.
+Thrift integration coverage lives in its own project,
+`GlutenFree.Databricks.AdoNet.Thrift.IntegrationTests`, which re-runs the shared REST
+integration suites **and the linq2db data-provider suites** over Thrift (via
+subclassing — no duplicated test code) plus Thrift-only session-semantics tests. Run it
+like any other test project with the usual `DATABRICKS_*` variables set; the base
+integration projects stay REST-only and have no dependency on the Thrift add-on.
 
 ## Connection string reference
 

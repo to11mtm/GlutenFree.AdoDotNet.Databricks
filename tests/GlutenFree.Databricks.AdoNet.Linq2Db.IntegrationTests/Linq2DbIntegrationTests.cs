@@ -12,7 +12,7 @@ namespace GlutenFree.Databricks.AdoNet.Linq2Db.IntegrationTests;
 /// Uses a fixed versioned schema; rows are scoped by a per-run <c>run_id</c>.
 /// </summary>
 [Trait("Category", "Integration")]
-public sealed class Linq2DbIntegrationTests : IAsyncLifetime
+public class Linq2DbIntegrationTests : IAsyncLifetime
 {
     private const string Catalog = "workspace";
     private const string Schema = "adodotnet_l2db_v1";

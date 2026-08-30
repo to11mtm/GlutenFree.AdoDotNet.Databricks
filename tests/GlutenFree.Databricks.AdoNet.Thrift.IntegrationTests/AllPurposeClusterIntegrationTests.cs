@@ -1,6 +1,6 @@
-namespace GlutenFree.Databricks.AdoNet.IntegrationTests;
+using GlutenFree.Databricks.AdoNet.IntegrationTests;
 
-using GlutenFree.Databricks.AdoNet.Thrift;
+namespace GlutenFree.Databricks.AdoNet.Thrift.IntegrationTests;
 
 /// <summary>
 /// Live coverage for all-purpose (interactive) cluster endpoints, which only speak the
