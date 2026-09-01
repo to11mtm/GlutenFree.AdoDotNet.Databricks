@@ -1,5 +1,9 @@
 using System.Net;
+using Apache.Arrow;
+using Apache.Arrow.Ipc;
+using Apache.Arrow.Types;
 using GlutenFree.Databricks.AdoNet.Auth;
+using GlutenFree.Databricks.AdoNet.Internal;
 using GlutenFree.Databricks.AdoNet.Transport;
 
 namespace GlutenFree.Databricks.AdoNet.Tests;
@@ -138,5 +142,206 @@ public class SyncPathTests
         // Cached on subsequent calls (sync and async share the cache).
         Assert.Equal("tok1", auth.GetToken());
         Assert.Single(handler.Requests);
+    }
+
+    [Fact]
+    public void Close_disposes_the_transport_synchronously()
+    {
+        var (connection, transport) = DatabricksConnectionTests.CreateOpenable();
+        connection.Open();
+
+        connection.Close();
+
+        Assert.True(transport.DisposedSynchronously);
+    }
+
+    [Fact]
+    public void Dispose_disposes_the_transport_synchronously()
+    {
+        var (connection, transport) = DatabricksConnectionTests.CreateOpenable();
+        connection.Open();
+
+        connection.Dispose();
+
+        Assert.True(transport.DisposedSynchronously);
+    }
+
+    [Fact]
+    public async Task SyncOverAsync_does_not_deadlock_under_a_blocking_SynchronizationContext()
+    {
+        Func<Task<int>> work = async () =>
+        {
+            // No ConfigureAwait(false): would resume on the caller's context if run inline.
+            await Task.Yield();
+            return 42;
+        };
+
+        var worker = Task.Run(() =>
+        {
+            var previous = SynchronizationContext.Current;
+            SynchronizationContext.SetSynchronizationContext(new NeverPumpedSynchronizationContext());
+            try
+            {
+                return SyncOverAsync.Run(work);
+            }
+            finally
+            {
+                SynchronizationContext.SetSynchronizationContext(previous);
+            }
+        });
+
+        var finished = await Task.WhenAny(worker, Task.Delay(TimeSpan.FromSeconds(30)));
+
+        Assert.True(
+            ReferenceEquals(finished, worker),
+            "SyncOverAsync.Run deadlocked against the caller's SynchronizationContext.");
+        Assert.Equal(42, await worker);
+    }
+
+    [Fact]
+    public void SyncOverAsync_propagates_the_original_exception_unwrapped()
+    {
+        Func<Task<int>> work = () => Task.FromException<int>(new InvalidOperationException("boom"));
+
+        var ex = Assert.Throws<InvalidOperationException>(() => SyncOverAsync.Run(work));
+
+        Assert.Equal("boom", ex.Message);
+    }
+
+    [Fact]
+    public void SyncOverAsync_supports_ValueTask_returning_work()
+    {
+        Func<ValueTask<int>> work = () => new ValueTask<int>(7);
+
+        Assert.Equal(7, SyncOverAsync.Run(work));
+    }
+
+    [Fact]
+    public void ArrowSync_uses_the_genuinely_synchronous_read_for_ArrowStreamReader()
+    {
+        var schema = new Schema.Builder()
+            .Field(f => f.Name("id").DataType(Int32Type.Default))
+            .Build();
+        using var bytes = new MemoryStream();
+        using (var writer = new ArrowStreamWriter(bytes, schema))
+        {
+            writer.WriteRecordBatch(new RecordBatch(schema, [new Int32Array.Builder().Append(5).Build()], 1));
+            writer.WriteEnd();
+        }
+
+        // The stream throws if read asynchronously, proving ArrowStreamReader's sync read is used.
+        using var reader = new ArrowStreamReader(new SyncOnlyStream(bytes.ToArray()));
+
+        using var batch = ArrowSync.ReadNextBatch(reader);
+
+        Assert.NotNull(batch);
+        Assert.Equal(1, batch!.Length);
+    }
+
+    [Fact]
+    public void ArrowSync_falls_back_to_SyncOverAsync_for_streaming_streams()
+    {
+        using var stream = new AsyncOnlyArrowArrayStream();
+
+        using var batch = ArrowSync.ReadNextBatch(stream);
+
+        Assert.NotNull(batch);
+        Assert.Equal(1, stream.AsyncReads);
+    }
+
+    [Fact]
+    public void ArrowSync_prefers_a_streams_own_synchronous_read_when_offered()
+    {
+        using var stream = new SyncCapableArrowArrayStream();
+
+        using var batch = ArrowSync.ReadNextBatch(stream);
+
+        Assert.NotNull(batch);
+        Assert.Equal(1, stream.SyncReads);
+        Assert.Equal(0, stream.AsyncReads);
+    }
+
+    /// <summary>A stream that can serve batches synchronously, like Thrift's OwnedArrowStream.</summary>
+    private sealed class SyncCapableArrowArrayStream : IArrowArrayStream, ISyncArrowArrayStream
+    {
+        public int SyncReads { get; private set; }
+
+        public int AsyncReads { get; private set; }
+
+        public Schema Schema { get; } = new Schema.Builder()
+            .Field(f => f.Name("id").DataType(Int32Type.Default))
+            .Build();
+
+        public RecordBatch? ReadNextRecordBatch(CancellationToken cancellationToken = default)
+        {
+            SyncReads++;
+            return new RecordBatch(Schema, [new Int32Array.Builder().Append(5).Build()], 1);
+        }
+
+        public ValueTask<RecordBatch?> ReadNextRecordBatchAsync(CancellationToken cancellationToken = default)
+        {
+            AsyncReads++;
+            return new ValueTask<RecordBatch?>((RecordBatch?)null);
+        }
+
+        public void Dispose()
+        {
+        }
+    }
+
+    /// <summary>A stream that refuses asynchronous reads.</summary>
+    private sealed class SyncOnlyStream(byte[] bytes) : MemoryStream(bytes)
+    {
+        public override Task<int> ReadAsync(
+            byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+            => throw new InvalidOperationException("The async read path must not be used here.");
+
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer, CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("The async read path must not be used here.");
+    }
+
+    /// <summary>Stands in for a streaming transport's stream: async reads only.</summary>
+    private sealed class AsyncOnlyArrowArrayStream : IArrowArrayStream
+    {
+        private bool _drained;
+
+        public int AsyncReads { get; private set; }
+
+        public Schema Schema { get; } = new Schema.Builder()
+            .Field(f => f.Name("id").DataType(Int32Type.Default))
+            .Build();
+
+        public ValueTask<RecordBatch?> ReadNextRecordBatchAsync(CancellationToken cancellationToken = default)
+        {
+            AsyncReads++;
+            if (_drained)
+            {
+                return new ValueTask<RecordBatch?>((RecordBatch?)null);
+            }
+
+            _drained = true;
+            return new ValueTask<RecordBatch?>(
+                new RecordBatch(Schema, [new Int32Array.Builder().Append(5).Build()], 1));
+        }
+
+        public void Dispose()
+        {
+        }
+    }
+
+    /// <summary>
+    /// Queues continuations that are never executed: any attempt to resume on this context
+    /// while its thread is blocked deadlocks, which is exactly what the helper must avoid.
+    /// </summary>
+    private sealed class NeverPumpedSynchronizationContext : SynchronizationContext
+    {
+        public override void Post(SendOrPostCallback d, object? state)
+        {
+            // Intentionally dropped.
+        }
+
+        public override void Send(SendOrPostCallback d, object? state)
+            => throw new NotSupportedException();
     }
 }

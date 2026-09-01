@@ -52,6 +52,15 @@ deadlocks here!): sync calls run a genuinely synchronous pipeline built on .NET'
 
 Use sync when your caller is sync; use async everywhere else, okie? (๑˃ᴗ˂)ﻭ
 
+> **One teeny documented exception** 🌸 — if a transport hands us an Arrow stream that *isn't* an
+> `ArrowStreamReader` (can happen with the opt-in
+> [Thrift transport](#-thrift-transport-opt-in-choo-choo-)), the sync read path blocks briefly on
+> an async read, because `Apache.Arrow`'s `IArrowArrayStream` only declares
+> `ReadNextRecordBatchAsync`. There's literally no sync member to call, gomen! 🙇 That one block
+> lives in a single helper that hops to the thread pool first, so it *still* can't deadlock your
+> `SynchronizationContext`. The default REST transport doesn't go near it — it uses
+> `ArrowStreamReader`'s genuinely synchronous read. ✨
+
 ## 🚀 Quickstart (ADO.NET) — let's gooo! 🚀
 
 ```csharp

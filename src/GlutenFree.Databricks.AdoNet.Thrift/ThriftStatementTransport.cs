@@ -6,6 +6,7 @@ using Apache.Arrow.Adbc;
 using Apache.Arrow.Adbc.Drivers.Apache;
 using Apache.Arrow.Adbc.Drivers.Apache.Spark;
 using Apache.Arrow.Adbc.Drivers.Databricks;
+using GlutenFree.Databricks.AdoNet.Internal;
 using GlutenFree.Databricks.AdoNet.Transport;
 
 namespace GlutenFree.Databricks.AdoNet.Thrift;
@@ -114,7 +115,7 @@ public sealed class ThriftStatementTransport : IDatabricksTransport
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
 
-        await ApplySessionContextAsync(request, commandTimeout, cancellationToken, sync: false)
+        await ApplySessionContextAsync(request, commandTimeout, cancellationToken)
             .ConfigureAwait(false);
 
         var statement = CreateAdbcStatement(request, commandTimeout);
@@ -146,8 +147,7 @@ public sealed class ThriftStatementTransport : IDatabricksTransport
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
 
-        ApplySessionContextAsync(request, commandTimeout, cancellationToken, sync: true)
-            .GetAwaiter().GetResult();
+        ApplySessionContext(request, commandTimeout, cancellationToken);
 
         var statement = CreateAdbcStatement(request, commandTimeout);
         var statementId = Guid.NewGuid().ToString("N");
@@ -160,11 +160,7 @@ public sealed class ThriftStatementTransport : IDatabricksTransport
 
             var result = statement.ExecuteQuery();
             cancellationToken.ThrowIfCancellationRequested();
-            // Blocking on the async path here is acceptable: the initial batch peek is a
-            // short read, and passing the real token keeps sync cancellation behavior
-            // consistent with ExecuteStatementAsync.
-            return BuildResponseAsync(statementId, statement, result, cancellationToken)
-                .GetAwaiter().GetResult();
+            return BuildResponse(statementId, statement, result, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -196,8 +192,20 @@ public sealed class ThriftStatementTransport : IDatabricksTransport
             "The Thrift transport streams results inline and does not serve random-access chunks.");
 
     /// <inheritdoc />
+    /// <remarks>Never called; see <see cref="GetResultChunkAsync"/>.</remarks>
+    public ResultData GetResultChunk(string statementId, int chunkIndex, CancellationToken cancellationToken)
+        => throw new NotSupportedException(
+            "The Thrift transport streams results inline and does not serve random-access chunks.");
+
+    /// <inheritdoc />
     /// <remarks>Never called: CloudFetch downloads are handled inside the ADBC driver.</remarks>
     public Task<byte[]> DownloadExternalLinkAsync(ExternalLink link, CancellationToken cancellationToken)
+        => throw new NotSupportedException(
+            "The Thrift transport never surfaces external links; CloudFetch is handled by the ADBC driver.");
+
+    /// <inheritdoc />
+    /// <remarks>Never called; see <see cref="DownloadExternalLinkAsync"/>.</remarks>
+    public byte[] DownloadExternalLink(ExternalLink link, CancellationToken cancellationToken)
         => throw new NotSupportedException(
             "The Thrift transport never surfaces external links; CloudFetch is handled by the ADBC driver.");
 
@@ -214,6 +222,17 @@ public sealed class ThriftStatementTransport : IDatabricksTransport
 
     /// <inheritdoc />
     public ValueTask DisposeAsync()
+    {
+        Dispose();
+        return ValueTask.CompletedTask;
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Also the synchronous disposal path used by <c>DatabricksConnection.Close()</c>:
+    /// ADBC teardown exposes only synchronous disposal.
+    /// </remarks>
+    public void Dispose()
     {
         foreach (var (id, statement) in _activeStatements)
         {
@@ -238,8 +257,6 @@ public sealed class ThriftStatementTransport : IDatabricksTransport
         {
             _database.Dispose();
         }
-
-        return ValueTask.CompletedTask;
     }
 
     /// <summary>
@@ -248,12 +265,12 @@ public sealed class ThriftStatementTransport : IDatabricksTransport
     /// <c>USE</c> statements only when they change.
     /// </summary>
     private async Task ApplySessionContextAsync(
-        StatementRequest request, TimeSpan commandTimeout, CancellationToken cancellationToken, bool sync)
+        StatementRequest request, TimeSpan commandTimeout, CancellationToken cancellationToken)
     {
         if (request.Catalog is { Length: > 0 } catalog
             && !string.Equals(catalog, _sessionCatalog, StringComparison.Ordinal))
         {
-            await ExecuteUseAsync($"USE CATALOG {QuoteIdentifier(catalog)}", commandTimeout, cancellationToken, sync)
+            await ExecuteUseAsync($"USE CATALOG {QuoteIdentifier(catalog)}", commandTimeout, cancellationToken)
                 .ConfigureAwait(false);
             _sessionCatalog = catalog;
             _sessionSchema = null; // Changing catalog resets the schema server-side.
@@ -262,18 +279,36 @@ public sealed class ThriftStatementTransport : IDatabricksTransport
         if (request.Schema is { Length: > 0 } schema
             && !string.Equals(schema, _sessionSchema, StringComparison.Ordinal))
         {
-            await ExecuteUseAsync($"USE SCHEMA {QuoteIdentifier(schema)}", commandTimeout, cancellationToken, sync)
+            await ExecuteUseAsync($"USE SCHEMA {QuoteIdentifier(schema)}", commandTimeout, cancellationToken)
                 .ConfigureAwait(false);
             _sessionSchema = schema;
         }
     }
 
-    private async Task ExecuteUseAsync(
-        string sql, TimeSpan commandTimeout, CancellationToken cancellationToken, bool sync)
+    /// <summary>Synchronous counterpart of <see cref="ApplySessionContextAsync"/>.</summary>
+    private void ApplySessionContext(
+        StatementRequest request, TimeSpan commandTimeout, CancellationToken cancellationToken)
     {
-        using var statement = _connection.CreateStatement();
-        ApplyTimeout(statement, commandTimeout);
-        statement.SqlQuery = sql;
+        if (request.Catalog is { Length: > 0 } catalog
+            && !string.Equals(catalog, _sessionCatalog, StringComparison.Ordinal))
+        {
+            ExecuteUse($"USE CATALOG {QuoteIdentifier(catalog)}", commandTimeout, cancellationToken);
+            _sessionCatalog = catalog;
+            _sessionSchema = null; // Changing catalog resets the schema server-side.
+        }
+
+        if (request.Schema is { Length: > 0 } schema
+            && !string.Equals(schema, _sessionSchema, StringComparison.Ordinal))
+        {
+            ExecuteUse($"USE SCHEMA {QuoteIdentifier(schema)}", commandTimeout, cancellationToken);
+            _sessionSchema = schema;
+        }
+    }
+
+    private async Task ExecuteUseAsync(
+        string sql, TimeSpan commandTimeout, CancellationToken cancellationToken)
+    {
+        using var statement = CreateUseStatement(sql, commandTimeout);
 
         using var cancelRegistration = cancellationToken.CanBeCanceled
             ? cancellationToken.Register(static s => TryCancel((AdbcStatement)s!), statement)
@@ -281,22 +316,55 @@ public sealed class ThriftStatementTransport : IDatabricksTransport
 
         try
         {
-            if (sync)
-            {
-                statement.ExecuteUpdate();
-            }
-            else
-            {
-                await statement.ExecuteUpdateAsync().ConfigureAwait(false);
-            }
+            await statement.ExecuteUpdateAsync().ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not DatabricksException and not OperationCanceledException)
         {
-            throw new DatabricksException($"Failed to apply session context '{sql}': {ex.Message}", ex);
+            throw SessionContextFailure(sql, ex);
         }
 
         cancellationToken.ThrowIfCancellationRequested();
     }
+
+    /// <summary>Synchronous counterpart of <see cref="ExecuteUseAsync"/>.</summary>
+    private void ExecuteUse(string sql, TimeSpan commandTimeout, CancellationToken cancellationToken)
+    {
+        using var statement = CreateUseStatement(sql, commandTimeout);
+
+        using var cancelRegistration = cancellationToken.CanBeCanceled
+            ? cancellationToken.Register(static s => TryCancel((AdbcStatement)s!), statement)
+            : default;
+
+        try
+        {
+            statement.ExecuteUpdate();
+        }
+        catch (Exception ex) when (ex is not DatabricksException and not OperationCanceledException)
+        {
+            throw SessionContextFailure(sql, ex);
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+    }
+
+    private AdbcStatement CreateUseStatement(string sql, TimeSpan commandTimeout)
+    {
+        var statement = _connection.CreateStatement();
+        try
+        {
+            ApplyTimeout(statement, commandTimeout);
+            statement.SqlQuery = sql;
+            return statement;
+        }
+        catch
+        {
+            statement.Dispose();
+            throw;
+        }
+    }
+
+    private static DatabricksException SessionContextFailure(string sql, Exception ex)
+        => new($"Failed to apply session context '{sql}': {ex.Message}", ex);
 
     private AdbcStatement CreateAdbcStatement(StatementRequest request, TimeSpan commandTimeout)
     {
@@ -406,20 +474,48 @@ public sealed class ThriftStatementTransport : IDatabricksTransport
         var stream = result.Stream;
         if (stream is null)
         {
-            // DML/DDL executed without a result stream.
-            _activeStatements.TryRemove(statementId, out _);
-            statement.Dispose();
-            return new StatementResponse
-            {
-                StatementId = statementId,
-                Status = new StatementStatus { State = "SUCCEEDED" },
-                Manifest = new ResultManifest { Format = "ARROW_STREAM", TotalChunkCount = 0, TotalRowCount = 0 },
-            };
+            return BuildEmptyResponse(statementId, statement);
         }
 
         // Peek the first batch so empty results report HasRows correctly even though
         // the stream's total row count is unknown up front.
         var firstBatch = await stream.ReadNextRecordBatchAsync(cancellationToken).ConfigureAwait(false);
+        return BuildStreamingResponse(statementId, stream, result, firstBatch);
+    }
+
+    /// <summary>Synchronous counterpart of <see cref="BuildResponseAsync"/>.</summary>
+    private StatementResponse BuildResponse(
+        string statementId, AdbcStatement statement, QueryResult result, CancellationToken cancellationToken)
+    {
+        var stream = result.Stream;
+        if (stream is null)
+        {
+            return BuildEmptyResponse(statementId, statement);
+        }
+
+        // Peek the first batch. ArrowStreamReader-backed streams read synchronously; the ADBC
+        // streaming case falls back to SyncOverAsync because Apache.Arrow's IArrowArrayStream
+        // declares only ReadNextRecordBatchAsync.
+        var firstBatch = ArrowSync.ReadNextBatch(stream, cancellationToken);
+        return BuildStreamingResponse(statementId, stream, result, firstBatch);
+    }
+
+    /// <summary>Response for DML/DDL executed without a result stream.</summary>
+    private StatementResponse BuildEmptyResponse(string statementId, AdbcStatement statement)
+    {
+        _activeStatements.TryRemove(statementId, out _);
+        statement.Dispose();
+        return new StatementResponse
+        {
+            StatementId = statementId,
+            Status = new StatementStatus { State = "SUCCEEDED" },
+            Manifest = new ResultManifest { Format = "ARROW_STREAM", TotalChunkCount = 0, TotalRowCount = 0 },
+        };
+    }
+
+    private StatementResponse BuildStreamingResponse(
+        string statementId, IArrowArrayStream stream, QueryResult result, RecordBatch? firstBatch)
+    {
         var columns = BuildColumns(stream.Schema);
         var totalRowCount = result.RowCount >= 0
             ? result.RowCount
@@ -523,7 +619,7 @@ public sealed class ThriftStatementTransport : IDatabricksTransport
     /// backing <see cref="AdbcStatement"/> is released exactly once when the reader
     /// disposes the stream.
     /// </summary>
-    private sealed class OwnedArrowStream : IArrowArrayStream
+    private sealed class OwnedArrowStream : IArrowArrayStream, ISyncArrowArrayStream
     {
         private readonly IArrowArrayStream _inner;
         private RecordBatch? _firstBatch;
@@ -547,6 +643,21 @@ public sealed class ThriftStatementTransport : IDatabricksTransport
             }
 
             return _inner.ReadNextRecordBatchAsync(cancellationToken);
+        }
+
+        /// <summary>
+        /// Synchronous counterpart: the buffered first batch is handed over without any I/O, and
+        /// subsequent reads defer the sync/async decision to the inner stream's real type.
+        /// </summary>
+        public RecordBatch? ReadNextRecordBatch(CancellationToken cancellationToken = default)
+        {
+            if (_firstBatch is { } batch)
+            {
+                _firstBatch = null;
+                return batch;
+            }
+
+            return ArrowSync.ReadNextBatch(_inner, cancellationToken);
         }
 
         public void Dispose()
