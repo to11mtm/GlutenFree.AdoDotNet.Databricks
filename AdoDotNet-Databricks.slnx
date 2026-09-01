@@ -4,6 +4,7 @@
     <File Path="planning/integration-test-setup.md" />
     <File Path="planning/linq2db-dataprovider.md" />
     <File Path="planning/more-pr-feedback.md" />
+    <File Path="planning/netstandard20-support-plan.md" />
     <File Path="planning/plan.md" />
     <File Path="planning/post-v0.1-backlog.md" />
     <File Path="planning/thrift-transport-plan.md" />

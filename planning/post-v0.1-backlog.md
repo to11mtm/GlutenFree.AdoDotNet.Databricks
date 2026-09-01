@@ -69,3 +69,5 @@ the provider keeps feature parity:**
   [thrift-transport-plan.md](thrift-transport-plan.md).
 - EF Core provider (separate project).
 - Bulk ingest via staging/volume APIs (COPY INTO / streaming ingest) instead of multi-row INSERT.
+- netstandard2.0 / net462 multi-targeting for .NET Framework consumers. Detailed spec:
+  [netstandard20-support-plan.md](netstandard20-support-plan.md).
