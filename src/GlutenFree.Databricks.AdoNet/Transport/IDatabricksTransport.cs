@@ -5,7 +5,13 @@ namespace GlutenFree.Databricks.AdoNet.Transport;
 /// The initial implementation is <see cref="RestStatementTransport"/> (Statement Execution API);
 /// a Thrift/HiveServer2 transport may be added later behind this same interface.
 /// </summary>
-public interface IDatabricksTransport : IAsyncDisposable
+/// <remarks>
+/// Every asynchronous member has a synchronous counterpart that implementations must provide
+/// explicitly: there are deliberately no default (sync-over-async) implementations, so a
+/// transport can never silently block a caller's thread on async I/O. Transports with no
+/// synchronous protocol support should throw <see cref="NotSupportedException"/> instead.
+/// </remarks>
+public interface IDatabricksTransport : IAsyncDisposable, IDisposable
 {
     /// <summary>
     /// Submits a statement and waits (server-side hybrid wait plus client-side polling)
@@ -30,19 +36,16 @@ public interface IDatabricksTransport : IAsyncDisposable
     Task CancelStatementAsync(string statementId, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Synchronous counterpart of <see cref="ExecuteStatementAsync"/>. The default implementation
-    /// blocks on the async path; <see cref="RestStatementTransport"/> overrides it with genuinely
-    /// synchronous I/O.
+    /// Synchronous counterpart of <see cref="ExecuteStatementAsync"/>. Implementations must use
+    /// genuinely synchronous I/O (or throw <see cref="NotSupportedException"/>); blocking on the
+    /// async path is not an acceptable implementation.
     /// </summary>
     StatementResponse ExecuteStatement(
-        StatementRequest request, TimeSpan commandTimeout, CancellationToken cancellationToken)
-        => ExecuteStatementAsync(request, commandTimeout, cancellationToken).GetAwaiter().GetResult();
+        StatementRequest request, TimeSpan commandTimeout, CancellationToken cancellationToken);
 
     /// <summary>Synchronous counterpart of <see cref="GetResultChunkAsync"/>.</summary>
-    ResultData GetResultChunk(string statementId, int chunkIndex, CancellationToken cancellationToken)
-        => GetResultChunkAsync(statementId, chunkIndex, cancellationToken).GetAwaiter().GetResult();
+    ResultData GetResultChunk(string statementId, int chunkIndex, CancellationToken cancellationToken);
 
     /// <summary>Synchronous counterpart of <see cref="DownloadExternalLinkAsync"/>.</summary>
-    byte[] DownloadExternalLink(ExternalLink link, CancellationToken cancellationToken)
-        => DownloadExternalLinkAsync(link, cancellationToken).GetAwaiter().GetResult();
+    byte[] DownloadExternalLink(ExternalLink link, CancellationToken cancellationToken);
 }

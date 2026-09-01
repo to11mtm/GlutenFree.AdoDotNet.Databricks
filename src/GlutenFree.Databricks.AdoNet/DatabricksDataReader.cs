@@ -6,6 +6,7 @@ using System.Text.Json;
 using Apache.Arrow;
 using Apache.Arrow.Compression;
 using Apache.Arrow.Ipc;
+using GlutenFree.Databricks.AdoNet.Internal;
 using GlutenFree.Databricks.AdoNet.Transport;
 
 namespace GlutenFree.Databricks.AdoNet;
@@ -747,12 +748,14 @@ public sealed class DatabricksDataReader : DbDataReader
     /// <summary>
     /// Reads the next batch synchronously. <see cref="ArrowStreamReader"/> has a genuinely
     /// synchronous read; other <see cref="IArrowArrayStream"/> implementations (streaming
-    /// transports) only expose the async form, so those block on it.
+    /// transports) only expose the async form, so those go through
+    /// <see cref="SyncOverAsync"/>: <c>Apache.Arrow</c>'s <see cref="IArrowArrayStream"/>
+    /// declares no synchronous <c>ReadNextRecordBatch</c>.
     /// </summary>
     private static RecordBatch? ReadNextBatchSync(IArrowArrayStream stream)
         => stream is ArrowStreamReader reader
             ? reader.ReadNextRecordBatch()
-            : stream.ReadNextRecordBatchAsync().GetAwaiter().GetResult();
+            : SyncOverAsync.Run(() => stream.ReadNextRecordBatchAsync());
 
     private void ThrowIfClosed()
     {

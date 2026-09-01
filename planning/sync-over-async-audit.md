@@ -1,8 +1,8 @@
 # Sync-over-Async Audit — `.GetAwaiter().GetResult()` (｡•̀ᴗ-)✧
 
-> Status: **decisions made, implementation not started**. See [Decisions](#decisions-answered-2026-09-01) and
-> [Work plan](#work-plan).
-> Date: 2026-08-31 · Revised: 2026-09-01 (open questions answered)
+> Status: **implemented (2026-09-01)**. All five steps below are done; see
+> [Outcome](#outcome-as-implemented).
+> Date: 2026-08-31 · Revised: 2026-09-01 (open questions answered, plan executed)
 > Target framework: `net8.0` (single TFM today; `netstandard2.0` is *deferred, not ruled out* — see D2)
 
 ---
@@ -269,18 +269,41 @@ Plus the `// CopilotNote:` policy comment on `SyncOverAsync`.
 
 ---
 
-## End state
+## Outcome (as implemented)
 
 | Bucket | Before | After |
 | --- | --- | --- |
 | 🟢 A — fake-async | 3 | **0** (real sync paths) |
 | 🟡 B — DIM escape hatches | 4 | **0** (abstract; compiler-enforced) |
 | 🟠 C — Thrift response build | 1 | **0** (folded into D) |
-| 🔴 D — Arrow async-only | 1 | **1**, centralised in `SyncOverAsync.Run`, offloaded per 4b |
-| **Total** | **9** | **1** |
+| 🔴 D — Arrow async-only | 1 | **0 raw sites**; 2 calls to `SyncOverAsync.Run`, offloaded per 4b |
+| **Total raw `.GetAwaiter().GetResult()` in `src/`** | **9** | **2**, both inside `SyncOverAsync` itself |
 
-One remaining `.GetAwaiter().GetResult()` — greppable, documented, deadlock-hardened, and squarely
-blamed on upstream. ✨
+`SyncOverAsync.Run` has exactly two callers, both blocked on the *same* upstream gap
+(`IArrowArrayStream` has no synchronous `ReadNextRecordBatch`):
+
+- `DatabricksDataReader.ReadNextBatchSync` — only for streaming (non-`ArrowStreamReader`) streams;
+  the REST path still takes the genuinely synchronous branch.
+- `ThriftStatementTransport.BuildResponse` — the first-batch peek.
+
+Greppable, documented, deadlock-hardened, and squarely blamed on upstream. ✨
+
+### What changed in code
+
+| File | Change |
+| --- | --- |
+| `Transport/IDatabricksTransport.cs` | Now `IAsyncDisposable, IDisposable`; `ExecuteStatement` / `GetResultChunk` / `DownloadExternalLink` are abstract (no DIM bodies). |
+| `Auth/IDatabricksAuthenticator.cs` | `GetToken` is abstract (no DIM body). |
+| `DatabricksConnection.cs` | New private `DisposeTransport()`; `Close()` is genuinely sync; `Open()`'s catch uses the sync path. |
+| `Internal/SyncOverAsync.cs` | **New.** `TaskFactory` on `TaskScheduler.Default` + `DenyChildAttach`, `Task<T>` and `ValueTask<T>` overloads. |
+| `DatabricksDataReader.cs` | `ReadNextBatchSync` routes the streaming branch through `SyncOverAsync.Run`. |
+| `Thrift/ThriftStatementTransport.cs` | Sync `Dispose()` (async delegates to it); sync `GetResultChunk`/`DownloadExternalLink` throwing `NotSupportedException`; `sync` bool flag replaced by real `ApplySessionContext`/`ExecuteUse` siblings; `BuildResponse` sync sibling sharing `BuildEmptyResponse`/`BuildStreamingResponse`. |
+| `Transport/RestStatementTransport.cs` | Dropped the now-redundant explicit `IDisposable`. |
+| `tests/.../FakeTransport.cs` | Implements the sync members + `Dispose()`; tracks `DisposedSynchronously`. |
+| `tests/.../SyncPathTests.cs` | New tests: sync `Close`/`Dispose` use the sync transport path; `SyncOverAsync` survives a never-pumped `SynchronizationContext`, unwraps exceptions, and supports `ValueTask`. |
+
+Verified: full solution builds warning-free; 298 → 303 unit tests, all passing. Integration tests
+(warehouse-gated) were not run as part of this change.
 
 ## Deferred / not doing
 

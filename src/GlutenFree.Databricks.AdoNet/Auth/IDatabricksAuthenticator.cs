@@ -12,9 +12,9 @@ public interface IDatabricksAuthenticator
     ValueTask<string> GetTokenAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Synchronous counterpart of <see cref="GetTokenAsync"/>. Implementations should use
-    /// genuinely synchronous I/O where possible; the default blocks on the async path.
+    /// Synchronous counterpart of <see cref="GetTokenAsync"/>. Implementations must use genuinely
+    /// synchronous I/O: there is deliberately no default implementation, so an authenticator can
+    /// never silently block the synchronous <c>Open()</c> path on async I/O.
     /// </summary>
-    string GetToken(CancellationToken cancellationToken = default)
-        => GetTokenAsync(cancellationToken).AsTask().GetAwaiter().GetResult();
+    string GetToken(CancellationToken cancellationToken = default);
 }

@@ -14,11 +14,21 @@ public sealed class FakeTransport : IDatabricksTransport
     public Dictionary<string, byte[]> ExternalLinkData { get; } = [];
     public bool Disposed { get; private set; }
 
+    /// <summary>True when teardown went through the synchronous <see cref="Dispose"/> path.</summary>
+    public bool DisposedSynchronously { get; private set; }
+
     public Task<StatementResponse> ExecuteStatementAsync(
         StatementRequest request, TimeSpan commandTimeout, CancellationToken cancellationToken)
     {
         ExecutedRequests.Add(request);
         return Task.FromResult(NextResponse ?? throw new InvalidOperationException("NextResponse not set."));
+    }
+
+    public StatementResponse ExecuteStatement(
+        StatementRequest request, TimeSpan commandTimeout, CancellationToken cancellationToken)
+    {
+        ExecutedRequests.Add(request);
+        return NextResponse ?? throw new InvalidOperationException("NextResponse not set.");
     }
 
     public Task<ResultData> GetResultChunkAsync(
@@ -28,8 +38,17 @@ public sealed class FakeTransport : IDatabricksTransport
         return Task.FromResult(Chunks[chunkIndex]);
     }
 
+    public ResultData GetResultChunk(string statementId, int chunkIndex, CancellationToken cancellationToken)
+    {
+        ChunkRequests.Add((statementId, chunkIndex));
+        return Chunks[chunkIndex];
+    }
+
     public Task<byte[]> DownloadExternalLinkAsync(ExternalLink link, CancellationToken cancellationToken)
         => Task.FromResult(ExternalLinkData[link.Link!]);
+
+    public byte[] DownloadExternalLink(ExternalLink link, CancellationToken cancellationToken)
+        => ExternalLinkData[link.Link!];
 
     public Task CancelStatementAsync(string statementId, CancellationToken cancellationToken)
     {
@@ -41,5 +60,11 @@ public sealed class FakeTransport : IDatabricksTransport
     {
         Disposed = true;
         return ValueTask.CompletedTask;
+    }
+
+    public void Dispose()
+    {
+        Disposed = true;
+        DisposedSynchronously = true;
     }
 }

@@ -49,6 +49,14 @@ blocking anywhere. This means:
 
 Use sync when your caller is sync; use async everywhere else.
 
+> **One documented exception:** when reading Arrow results from a *streaming* transport (the
+> opt-in [Thrift transport](#thrift-transport-opt-in)), the synchronous read path briefly blocks
+> on an async read, because `Apache.Arrow`'s `IArrowArrayStream` declares only
+> `ReadNextRecordBatchAsync` — there is no synchronous member to call. That block is centralised
+> in a single helper that runs the work on the thread pool, so it still cannot deadlock against a
+> UI or legacy-ASP.NET `SynchronizationContext`. The default REST transport is unaffected: it
+> materialises bytes and uses `ArrowStreamReader`'s genuinely synchronous read.
+
 ## Quickstart (ADO.NET)
 
 ```csharp

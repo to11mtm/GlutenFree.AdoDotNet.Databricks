@@ -12,7 +12,7 @@ namespace GlutenFree.Databricks.AdoNet.Transport;
 /// <see cref="IDatabricksTransport"/> implementation backed by the Databricks
 /// SQL Statement Execution API (<c>/api/2.0/sql/statements</c>).
 /// </summary>
-public sealed class RestStatementTransport : IDatabricksTransport, IDisposable
+public sealed class RestStatementTransport : IDatabricksTransport
 {
     private static readonly JsonSerializerOptions s_jsonOptions = new(JsonSerializerDefaults.Web);
     private static readonly TimeSpan s_maxServerWait = TimeSpan.FromSeconds(50);

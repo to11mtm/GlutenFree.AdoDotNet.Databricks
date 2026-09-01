@@ -1,5 +1,6 @@
 using System.Net;
 using GlutenFree.Databricks.AdoNet.Auth;
+using GlutenFree.Databricks.AdoNet.Internal;
 using GlutenFree.Databricks.AdoNet.Transport;
 
 namespace GlutenFree.Databricks.AdoNet.Tests;
@@ -138,5 +139,92 @@ public class SyncPathTests
         // Cached on subsequent calls (sync and async share the cache).
         Assert.Equal("tok1", auth.GetToken());
         Assert.Single(handler.Requests);
+    }
+
+    [Fact]
+    public void Close_disposes_the_transport_synchronously()
+    {
+        var (connection, transport) = DatabricksConnectionTests.CreateOpenable();
+        connection.Open();
+
+        connection.Close();
+
+        Assert.True(transport.DisposedSynchronously);
+    }
+
+    [Fact]
+    public void Dispose_disposes_the_transport_synchronously()
+    {
+        var (connection, transport) = DatabricksConnectionTests.CreateOpenable();
+        connection.Open();
+
+        connection.Dispose();
+
+        Assert.True(transport.DisposedSynchronously);
+    }
+
+    [Fact]
+    public async Task SyncOverAsync_does_not_deadlock_under_a_blocking_SynchronizationContext()
+    {
+        Func<Task<int>> work = async () =>
+        {
+            // No ConfigureAwait(false): would resume on the caller's context if run inline.
+            await Task.Yield();
+            return 42;
+        };
+
+        var worker = Task.Run(() =>
+        {
+            var previous = SynchronizationContext.Current;
+            SynchronizationContext.SetSynchronizationContext(new NeverPumpedSynchronizationContext());
+            try
+            {
+                return SyncOverAsync.Run(work);
+            }
+            finally
+            {
+                SynchronizationContext.SetSynchronizationContext(previous);
+            }
+        });
+
+        var finished = await Task.WhenAny(worker, Task.Delay(TimeSpan.FromSeconds(30)));
+
+        Assert.True(
+            ReferenceEquals(finished, worker),
+            "SyncOverAsync.Run deadlocked against the caller's SynchronizationContext.");
+        Assert.Equal(42, await worker);
+    }
+
+    [Fact]
+    public void SyncOverAsync_propagates_the_original_exception_unwrapped()
+    {
+        Func<Task<int>> work = () => Task.FromException<int>(new InvalidOperationException("boom"));
+
+        var ex = Assert.Throws<InvalidOperationException>(() => SyncOverAsync.Run(work));
+
+        Assert.Equal("boom", ex.Message);
+    }
+
+    [Fact]
+    public void SyncOverAsync_supports_ValueTask_returning_work()
+    {
+        Func<ValueTask<int>> work = () => new ValueTask<int>(7);
+
+        Assert.Equal(7, SyncOverAsync.Run(work));
+    }
+
+    /// <summary>
+    /// Queues continuations that are never executed: any attempt to resume on this context
+    /// while its thread is blocked deadlocks, which is exactly what the helper must avoid.
+    /// </summary>
+    private sealed class NeverPumpedSynchronizationContext : SynchronizationContext
+    {
+        public override void Post(SendOrPostCallback d, object? state)
+        {
+            // Intentionally dropped.
+        }
+
+        public override void Send(SendOrPostCallback d, object? state)
+            => throw new NotSupportedException();
     }
 }

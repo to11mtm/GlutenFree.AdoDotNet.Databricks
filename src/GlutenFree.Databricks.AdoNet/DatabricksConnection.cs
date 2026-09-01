@@ -128,7 +128,7 @@ public sealed class DatabricksConnection : DbConnection
         }
         catch
         {
-            DisposeTransportAsync().AsTask().GetAwaiter().GetResult();
+            DisposeTransport();
             _state = ConnectionState.Closed;
             throw;
         }
@@ -179,7 +179,12 @@ public sealed class DatabricksConnection : DbConnection
     }
 
     /// <inheritdoc />
-    public override void Close() => CloseAsync().GetAwaiter().GetResult();
+    /// <remarks>Genuinely synchronous: transport teardown has a synchronous path.</remarks>
+    public override void Close()
+    {
+        DisposeTransport();
+        _state = ConnectionState.Closed;
+    }
 
     /// <inheritdoc />
     public override async Task CloseAsync()
@@ -303,6 +308,20 @@ public sealed class DatabricksConnection : DbConnection
         if (_transport is not null)
         {
             await _transport.DisposeAsync().ConfigureAwait(false);
+            _transport = null;
+        }
+
+        // Authenticators are process-shared (OAuth token caches survive across connections)
+        // and are never disposed here.
+        _authenticator = null;
+    }
+
+    /// <summary>Synchronous counterpart of <see cref="DisposeTransportAsync"/>.</summary>
+    private void DisposeTransport()
+    {
+        if (_transport is not null)
+        {
+            _transport.Dispose();
             _transport = null;
         }
 
