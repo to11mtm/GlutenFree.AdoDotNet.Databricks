@@ -279,12 +279,17 @@ Plus the `// CopilotNote:` policy comment on `SyncOverAsync`.
 | 🔴 D — Arrow async-only | 1 | **0 raw sites**; 2 calls to `SyncOverAsync.Run`, offloaded per 4b |
 | **Total raw `.GetAwaiter().GetResult()` in `src/`** | **9** | **2**, both inside `SyncOverAsync` itself |
 
-`SyncOverAsync.Run` has exactly two callers, both blocked on the *same* upstream gap
-(`IArrowArrayStream` has no synchronous `ReadNextRecordBatch`):
+`SyncOverAsync.Run` is reached from one place — `Internal/ArrowSync.ReadNextBatch`, which dispatches
+in this order:
 
-- `DatabricksDataReader.ReadNextBatchSync` — only for streaming (non-`ArrowStreamReader`) streams;
-  the REST path still takes the genuinely synchronous branch.
-- `ThriftStatementTransport.BuildResponse` — the first-batch peek.
+1. `ISyncArrowArrayStream` (our own wrappers, e.g. Thrift's `OwnedArrowStream`) — hands over the
+   buffered first batch with no I/O at all, then re-runs this decision against the *inner* stream.
+2. `ArrowStreamReader` — genuinely synchronous read (the REST path).
+3. Anything else — `SyncOverAsync.Run`, because `IArrowArrayStream` declares only
+   `ReadNextRecordBatchAsync`.
+
+Callers: `DatabricksDataReader.ReadNextBatchSync` and `ThriftStatementTransport.BuildResponse`
+(first-batch peek). Only step 3 blocks, and only for genuinely async-only ADBC streams.
 
 Greppable, documented, deadlock-hardened, and squarely blamed on upstream. ✨
 
@@ -296,13 +301,15 @@ Greppable, documented, deadlock-hardened, and squarely blamed on upstream. ✨
 | `Auth/IDatabricksAuthenticator.cs` | `GetToken` is abstract (no DIM body). |
 | `DatabricksConnection.cs` | New private `DisposeTransport()`; `Close()` is genuinely sync; `Open()`'s catch uses the sync path. |
 | `Internal/SyncOverAsync.cs` | **New.** `TaskFactory` on `TaskScheduler.Default` + `DenyChildAttach`, `Task<T>` and `ValueTask<T>` overloads. |
-| `DatabricksDataReader.cs` | `ReadNextBatchSync` routes the streaming branch through `SyncOverAsync.Run`. |
-| `Thrift/ThriftStatementTransport.cs` | Sync `Dispose()` (async delegates to it); sync `GetResultChunk`/`DownloadExternalLink` throwing `NotSupportedException`; `sync` bool flag replaced by real `ApplySessionContext`/`ExecuteUse` siblings; `BuildResponse` sync sibling sharing `BuildEmptyResponse`/`BuildStreamingResponse`. |
+| `Internal/ArrowSync.cs` | **New.** `ReadNextBatch` — one shared sync-read/async-fallback decision for both transports. |
+| `Internal/ISyncArrowArrayStream.cs` | **New.** Opt-in contract letting an `IArrowArrayStream` wrapper offer a synchronous read. |
+| `DatabricksDataReader.cs` | `ReadNextBatchSync` delegates to `ArrowSync.ReadNextBatch`. |
+| `Thrift/ThriftStatementTransport.cs` | Sync `Dispose()` (async delegates to it); sync `GetResultChunk`/`DownloadExternalLink` throwing `NotSupportedException`; `sync` bool flag replaced by real `ApplySessionContext`/`ExecuteUse` siblings; `BuildResponse` sync sibling (peeks via `ArrowSync.ReadNextBatch`) sharing `BuildEmptyResponse`/`BuildStreamingResponse`; `OwnedArrowStream` implements `ISyncArrowArrayStream`. |
 | `Transport/RestStatementTransport.cs` | Dropped the now-redundant explicit `IDisposable`. |
 | `tests/.../FakeTransport.cs` | Implements the sync members + `Dispose()`; tracks `DisposedSynchronously`. |
-| `tests/.../SyncPathTests.cs` | New tests: sync `Close`/`Dispose` use the sync transport path; `SyncOverAsync` survives a never-pumped `SynchronizationContext`, unwraps exceptions, and supports `ValueTask`. |
+| `tests/.../SyncPathTests.cs` | New tests: sync `Close`/`Dispose` use the sync transport path; `ArrowSync` prefers `ISyncArrowArrayStream`, then `ArrowStreamReader`'s sync read (verified with an async-refusing stream), then the async fallback; `SyncOverAsync` survives a never-pumped `SynchronizationContext`, unwraps exceptions, and supports `ValueTask`. |
 
-Verified: full solution builds warning-free; 298 → 303 unit tests, all passing. Integration tests
+Verified: full solution builds warning-free; 298 → 306 unit tests, all passing. Integration tests
 (warehouse-gated) were not run as part of this change.
 
 ## Deferred / not doing

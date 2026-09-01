@@ -493,9 +493,10 @@ public sealed class ThriftStatementTransport : IDatabricksTransport
             return BuildEmptyResponse(statementId, statement);
         }
 
-        // CopilotNote: Apache.Arrow's IArrowArrayStream declares only ReadNextRecordBatchAsync —
-        // there is no synchronous counterpart to call for the first-batch peek.
-        var firstBatch = SyncOverAsync.Run(() => stream.ReadNextRecordBatchAsync(cancellationToken));
+        // Peek the first batch. ArrowStreamReader-backed streams read synchronously; the ADBC
+        // streaming case falls back to SyncOverAsync because Apache.Arrow's IArrowArrayStream
+        // declares only ReadNextRecordBatchAsync.
+        var firstBatch = ArrowSync.ReadNextBatch(stream, cancellationToken);
         return BuildStreamingResponse(statementId, stream, result, firstBatch);
     }
 
@@ -618,7 +619,7 @@ public sealed class ThriftStatementTransport : IDatabricksTransport
     /// backing <see cref="AdbcStatement"/> is released exactly once when the reader
     /// disposes the stream.
     /// </summary>
-    private sealed class OwnedArrowStream : IArrowArrayStream
+    private sealed class OwnedArrowStream : IArrowArrayStream, ISyncArrowArrayStream
     {
         private readonly IArrowArrayStream _inner;
         private RecordBatch? _firstBatch;
@@ -642,6 +643,21 @@ public sealed class ThriftStatementTransport : IDatabricksTransport
             }
 
             return _inner.ReadNextRecordBatchAsync(cancellationToken);
+        }
+
+        /// <summary>
+        /// Synchronous counterpart: the buffered first batch is handed over without any I/O, and
+        /// subsequent reads defer the sync/async decision to the inner stream's real type.
+        /// </summary>
+        public RecordBatch? ReadNextRecordBatch(CancellationToken cancellationToken = default)
+        {
+            if (_firstBatch is { } batch)
+            {
+                _firstBatch = null;
+                return batch;
+            }
+
+            return ArrowSync.ReadNextBatch(_inner, cancellationToken);
         }
 
         public void Dispose()

@@ -746,16 +746,11 @@ public sealed class DatabricksDataReader : DbDataReader
         => bytes.Length >= 4 && bytes[0] == 0xFF && bytes[1] == 0xFF && bytes[2] == 0xFF && bytes[3] == 0xFF;
 
     /// <summary>
-    /// Reads the next batch synchronously. <see cref="ArrowStreamReader"/> has a genuinely
-    /// synchronous read; other <see cref="IArrowArrayStream"/> implementations (streaming
-    /// transports) only expose the async form, so those go through
-    /// <see cref="SyncOverAsync"/>: <c>Apache.Arrow</c>'s <see cref="IArrowArrayStream"/>
-    /// declares no synchronous <c>ReadNextRecordBatch</c>.
+    /// Reads the next batch synchronously; see <see cref="ArrowSync.ReadNextBatch"/> for the
+    /// sync-read/async-fallback split.
     /// </summary>
     private static RecordBatch? ReadNextBatchSync(IArrowArrayStream stream)
-        => stream is ArrowStreamReader reader
-            ? reader.ReadNextRecordBatch()
-            : SyncOverAsync.Run(() => stream.ReadNextRecordBatchAsync());
+        => ArrowSync.ReadNextBatch(stream);
 
     private void ThrowIfClosed()
     {
