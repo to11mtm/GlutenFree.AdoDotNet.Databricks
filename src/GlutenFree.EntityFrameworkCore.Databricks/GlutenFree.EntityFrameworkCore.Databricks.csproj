@@ -18,6 +18,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Root EF namespace, mirroring EF Core's own provider projects: DbLoggerCategory and
+         friends are referenced pervasively by provider services. -->
+    <Using Include="Microsoft.EntityFrameworkCore" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\GlutenFree.Databricks.AdoNet\GlutenFree.Databricks.AdoNet.csproj" />
   </ItemGroup>
 

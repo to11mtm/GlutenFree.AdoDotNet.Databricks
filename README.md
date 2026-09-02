@@ -12,6 +12,7 @@ server-side sessions. No ODBC Jank needed, pure .NET 8, async-first, injection-s
 | `GlutenFree.Databricks.AdoNet.Linq2Db` | [linq2db](https://github.com/linq2db/linq2db) data provider |
 | `GlutenFree.Databricks.AdoNet.Linq2Db.Thrift` | linq2db provider flavor over the Thrift transport — enables interactive transactions |
 | `GlutenFree.Databricks.AdoNet.Thrift` | Opt-in Thrift transport (real sessions), built on the [Apache Arrow ADBC Databricks driver](https://www.nuget.org/packages/Apache.Arrow.Adbc.Drivers.Databricks) |
+| `GlutenFree.EntityFrameworkCore.Databricks` | Entity Framework Core 10 provider (preview — query pipeline; see [EF Core](#entity-framework-core-preview)) |
 
 ## Features
 
@@ -32,6 +33,8 @@ server-side sessions. No ODBC Jank needed, pure .NET 8, async-first, injection-s
 - **Opt-in Thrift transport** (`GlutenFree.Databricks.AdoNet.Thrift`): real server-side
   sessions (`USE`/session state persists across commands) — see
   [Thrift transport](#thrift-transport-opt-in)
+- **EF Core 10 provider** (preview): LINQ queries with Databricks-native SQL generation —
+  see [Entity Framework Core](#entity-framework-core-preview)
 
 ## Async vs. sync
 
@@ -114,6 +117,55 @@ db.GetTable<Order>()
     .InsertWhenNotMatched()
     .Merge();
 ```
+
+## Entity Framework Core (preview)
+
+`GlutenFree.EntityFrameworkCore.Databricks` is an EF Core **10** provider (targets `net10.0`;
+the package major tracks the EF Core major). It is a preview: the query pipeline works, and
+`SaveChanges` and migrations are still being built out.
+
+```csharp
+using Microsoft.EntityFrameworkCore;
+
+public class SalesContext(DbContextOptions<SalesContext> options) : DbContext(options)
+{
+    public DbSet<Order> Orders => Set<Order>();
+}
+
+var options = new DbContextOptionsBuilder<SalesContext>()
+    .UseDatabricks(connectionString, o => o.UseCatalog("main").UseSchema("sales"))
+    .Options;
+
+using var context = new SalesContext(options);
+
+var bigOrders = await context.Orders
+    .Where(o => o.Amount > 100m && o.Customer.StartsWith("acme"))
+    .OrderByDescending(o => o.Amount)
+    .Take(10)
+    .ToListAsync();
+```
+
+`UseDatabricks` accepts a connection string or an existing `DatabricksConnection` (so the
+Thrift transport can be opted into per context). `UseCatalog`/`UseSchema` override the
+connection string's `Catalog`/`Schema` keywords.
+
+What the provider generates is Databricks-native: backtick-quoted identifiers, `:name`
+parameter markers, `LIMIT`/`OFFSET` paging (`LIMIT ALL` for an unbounded `Skip`), and
+Databricks functions for the common `string`/date/`Math` translations
+(`startswith`, `contains`, `length`, `year`, `upper`, …).
+
+Preview caveats:
+
+- **Keys must be client-generated.** Databricks cannot report store-generated values back to
+  EF, so configure `ValueGeneratedNever()` (identity columns and concurrency tokens are not
+  supported yet).
+- **`SaveChanges` issues one statement per command.** With the REST transport it is therefore
+  not atomic across entities; use the Thrift transport (real transactions) when you need
+  atomicity. See [Current Limitations](#current-limitations).
+- **Migrations are not implemented yet.** `EnsureCreated`/`EnsureDeleted` manage the Unity
+  Catalog *schema*; full `Migrate()` support is planned.
+- Constraints are informational in Delta, so EF's assumption that a primary key is unique is
+  the application's responsibility.
 
 ## Thrift transport (opt-in)
 

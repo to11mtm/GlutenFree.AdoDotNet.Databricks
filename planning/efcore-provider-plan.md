@@ -201,28 +201,48 @@ existing `DatabricksTypeMap` (ADO.NET) and `DatabricksMappingSchema` (linq2db):
 
 ## 8. Phasing
 
-**Phase −1 (prerequisite, in the core ADO.NET package):** real
+**Phase −1 (prerequisite, in the core ADO.NET package) — DONE:** real
 `DatabricksTransaction` support — `IDatabricksTransport.SupportsTransactions`,
 `BEGIN TRANSACTION`/`COMMIT`/`ROLLBACK` on session-capable transports (Thrift),
 `NotSupportedException` on REST. See §2.1.
 
-1. **Phase 0 — spike:** package skeleton, options plumbing, mandatory
-   services with mostly-default implementations; get `ToQueryString()` and a
-   simple `ToListAsync()` working against a warehouse.
-2. **Phase 1 — query provider (the real value):** type mappings, SQL
-   generation quirks (backticks, LIMIT/OFFSET, LATERAL), function translators
-   (port linq2db translator knowledge), curated Northwind spec-test subset.
-   Read-only EF is already useful for a lakehouse.
-3. **Phase 2 — SaveChanges:** update SQL generator, `BEGIN ATOMIC`-wrapping
-   batch factory, transaction factory (no savepoints), conventions for
-   client-generated keys, model validator.
-4. **Phase 3 — EnsureCreated + minimal migrations:** database creator,
-   CREATE TABLE generation, history repository; then evaluate full `Migrate()`.
+1. **Phase 0 — spike — DONE:** package skeleton, options plumbing
+   (`UseDatabricks`, catalog/schema overrides), service registration, relational
+   connection, type mapping source, SQL generation helper (backticks, `:name`),
+   query SQL generator (`LIMIT`/`OFFSET`), update SQL generator + singular batch
+   factory, transaction factory (no savepoints), database creator.
+   `ToQueryString()` and `ToListAsync()` verified against a live warehouse.
+2. **Phase 1 — query provider (the real value) — IN PROGRESS:** function
+   translators are started (`string` methods via Databricks' native
+   `startswith`/`endswith`/`contains`, `string.Length`, date-part members,
+   `Math`), plus a `CAST(COUNT(...) AS INT)` narrowing for EF's `int`-typed
+   `Count`. Still to do: `LATERAL` instead of `APPLY`, more date/time
+   arithmetic, `DateOnly`/`TimeOnly` coverage, `ExecuteUpdate`/`ExecuteDelete`,
+   and a curated Northwind spec-test subset.
+3. **Phase 2 — SaveChanges:** update SQL generator refinements, `BEGIN ATOMIC`-
+   wrapping batch factory, conventions for client-generated keys, model validator.
+4. **Phase 3 — EnsureCreated + minimal migrations:** CREATE TABLE generation,
+   history repository; then evaluate full `Migrate()`.
 5. **Later / out of scope v1:** scaffolding (`IDatabaseModelFactory` /
    `IProviderCodeGenerator` in a Design sub-package), ARRAY/MAP/STRUCT,
    primitive collections → ARRAY, MERGE-based `ExecuteUpdate` optimizations,
    store-generated identity keys, concurrency tokens, retrying execution
    strategy tuned to warehouse cold starts.
+
+### Behaviors found only by running against a live warehouse
+
+Worth keeping in mind when extending the provider — none of these surface in
+offline SQL-generation tests:
+
+- **`LIMIT` must be an `INT` expression.** `OFFSET` requires a `LIMIT`, and a
+  `BIGINT` bound is rejected with `INVALID_LIMIT_LIKE_EXPRESSION.DATA_TYPE`, so
+  an unbounded skip emits `LIMIT ALL`.
+- **`COUNT` returns `BIGINT`.** EF materializes `Count` as `int` and the reader
+  will not narrow, so the generator wraps it in `CAST(... AS INT)`.
+- **The relational base translates almost nothing.**
+  `RelationalMemberTranslatorProvider` ships with an empty translator list, and
+  the method-call base does not cover `StartsWith`/`Contains`, so a provider
+  must supply them or every such predicate fails to translate.
 
 ## 9. Open questions
 

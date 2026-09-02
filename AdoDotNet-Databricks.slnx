@@ -28,6 +28,7 @@
     <Project Path="tests/GlutenFree.Databricks.AdoNet.Thrift.IntegrationTests/GlutenFree.Databricks.AdoNet.Thrift.IntegrationTests.csproj" />
     <Project Path="tests/GlutenFree.Databricks.AdoNet.Thrift.Tests/GlutenFree.Databricks.AdoNet.Thrift.Tests.csproj" />
     <Project Path="tests/GlutenFree.EntityFrameworkCore.Databricks.Tests/GlutenFree.EntityFrameworkCore.Databricks.Tests.csproj" />
+    <Project Path="tests/GlutenFree.EntityFrameworkCore.Databricks.IntegrationTests/GlutenFree.EntityFrameworkCore.Databricks.IntegrationTests.csproj" />
   </Folder>
   <Folder Name="/_/">
     <File Path=".editorconfig" />

@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <!-- See the note in the unit test project: provider infrastructure lives in *.Internal. -->
+    <NoWarn>$(NoWarn);EF1001</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\GlutenFree.EntityFrameworkCore.Databricks\GlutenFree.EntityFrameworkCore.Databricks.csproj" />
+    <!-- Reused for IntegrationConfig/IntegrationFact; its own tests are not re-discovered here. -->
+    <ProjectReference Include="..\GlutenFree.Databricks.AdoNet.IntegrationTests\GlutenFree.Databricks.AdoNet.IntegrationTests.csproj" />
+  </ItemGroup>
+
+</Project>
