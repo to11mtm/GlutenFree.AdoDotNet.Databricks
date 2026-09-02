@@ -4,6 +4,7 @@
     <File Path="planning/efcore-provider-plan.md" />
     <File Path="planning/integration-test-setup.md" />
     <File Path="planning/linq2db-dataprovider.md" />
+    <File Path="planning/linq2db-followups-plan.md" />
     <File Path="planning/linq2db-thrift-transactions-plan.md" />
     <File Path="planning/more-pr-feedback.md" />
     <File Path="planning/plan.md" />
@@ -29,6 +30,7 @@
     <Project Path="tests/GlutenFree.Databricks.AdoNet.Thrift.Tests/GlutenFree.Databricks.AdoNet.Thrift.Tests.csproj" />
     <Project Path="tests/GlutenFree.EntityFrameworkCore.Databricks.Tests/GlutenFree.EntityFrameworkCore.Databricks.Tests.csproj" />
     <Project Path="tests/GlutenFree.EntityFrameworkCore.Databricks.IntegrationTests/GlutenFree.EntityFrameworkCore.Databricks.IntegrationTests.csproj" />
+    <Project Path="tests/GlutenFree.EntityFrameworkCore.Databricks.Thrift.IntegrationTests/GlutenFree.EntityFrameworkCore.Databricks.Thrift.IntegrationTests.csproj" />
   </Folder>
   <Folder Name="/_/">
     <File Path=".editorconfig" />

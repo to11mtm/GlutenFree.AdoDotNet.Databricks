@@ -14,6 +14,7 @@ public class DatabricksMethodCallTranslatorProvider : RelationalMethodCallTransl
         AddTranslators(
         [
             new DatabricksStringMethodTranslator(sqlExpressionFactory),
+            new DatabricksDateTimeMethodTranslator(sqlExpressionFactory),
             new DatabricksMathTranslator(sqlExpressionFactory),
         ]);
     }

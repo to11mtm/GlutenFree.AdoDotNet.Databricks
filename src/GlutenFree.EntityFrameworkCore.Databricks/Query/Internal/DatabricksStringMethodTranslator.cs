@@ -56,6 +56,27 @@ public class DatabricksStringMethodTranslator(ISqlExpressionFactory sqlExpressio
     private static readonly MethodInfo IsNullOrWhiteSpace =
         typeof(string).GetRuntimeMethod(nameof(string.IsNullOrWhiteSpace), [typeof(string)])!;
 
+    private static readonly MethodInfo PadLeft =
+        typeof(string).GetRuntimeMethod(nameof(string.PadLeft), [typeof(int)])!;
+
+    private static readonly MethodInfo PadLeftWithChar =
+        typeof(string).GetRuntimeMethod(nameof(string.PadLeft), [typeof(int), typeof(char)])!;
+
+    private static readonly MethodInfo PadRight =
+        typeof(string).GetRuntimeMethod(nameof(string.PadRight), [typeof(int)])!;
+
+    private static readonly MethodInfo PadRightWithChar =
+        typeof(string).GetRuntimeMethod(nameof(string.PadRight), [typeof(int), typeof(char)])!;
+
+    /// <summary>The <c>string.Concat</c> overloads taking only strings.</summary>
+    private static readonly MethodInfo[] ConcatMethods =
+    [
+        typeof(string).GetRuntimeMethod(nameof(string.Concat), [typeof(string), typeof(string)])!,
+        typeof(string).GetRuntimeMethod(nameof(string.Concat), [typeof(string), typeof(string), typeof(string)])!,
+        typeof(string).GetRuntimeMethod(
+            nameof(string.Concat), [typeof(string), typeof(string), typeof(string), typeof(string)])!,
+    ];
+
     /// <inheritdoc />
     public virtual SqlExpression? Translate(
         SqlExpression? instance,
@@ -136,6 +157,31 @@ public class DatabricksStringMethodTranslator(ISqlExpressionFactory sqlExpressio
                     sqlExpressionFactory.Add(arguments[0], sqlExpressionFactory.Constant(1)),
                     arguments[1]);
             }
+
+            if (method == PadLeft)
+            {
+                return StringFunction("lpad", instance, arguments[0], sqlExpressionFactory.Constant(" "));
+            }
+
+            if (method == PadLeftWithChar)
+            {
+                return StringFunction("lpad", instance, arguments[0], arguments[1]);
+            }
+
+            if (method == PadRight)
+            {
+                return StringFunction("rpad", instance, arguments[0], sqlExpressionFactory.Constant(" "));
+            }
+
+            if (method == PadRightWithChar)
+            {
+                return StringFunction("rpad", instance, arguments[0], arguments[1]);
+            }
+        }
+
+        if (Array.IndexOf(ConcatMethods, method) >= 0)
+        {
+            return StringFunction("concat", [.. arguments]);
         }
 
         if (method == IsNullOrEmpty)

@@ -10,6 +10,47 @@ public class DatabricksQuerySqlGenerator(QuerySqlGeneratorDependencies dependenc
 {
     /// <inheritdoc />
     /// <remarks>
+    /// Spark SQL's <c>+</c> is arithmetic only: applying it to strings coerces the operands to
+    /// numbers and yields <c>NULL</c> rather than concatenating. Databricks spells string
+    /// concatenation <c>||</c>.
+    /// </remarks>
+    protected override string GetOperator(SqlBinaryExpression binaryExpression)
+        => binaryExpression.OperatorType == ExpressionType.Add && binaryExpression.Type == typeof(string)
+            ? " || "
+            : base.GetOperator(binaryExpression);
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Databricks has no <c>CROSS APPLY</c>; the equivalent is a PostgreSQL-style
+    /// <c>INNER JOIN LATERAL … ON TRUE</c>. EF's relational translator normally rewrites these
+    /// shapes into <c>ROW_NUMBER()</c> subqueries, so this is defensive: without it a
+    /// <see cref="CrossApplyExpression" /> would silently render SQL the server rejects.
+    /// </remarks>
+    protected override Expression VisitCrossApply(CrossApplyExpression crossApplyExpression)
+    {
+        Sql.Append("INNER JOIN LATERAL ");
+        Visit(crossApplyExpression.Table);
+        Sql.Append(" ON TRUE");
+
+        return crossApplyExpression;
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Databricks has no <c>OUTER APPLY</c>; the equivalent is
+    /// <c>LEFT JOIN LATERAL … ON TRUE</c>. See <see cref="VisitCrossApply" />.
+    /// </remarks>
+    protected override Expression VisitOuterApply(OuterApplyExpression outerApplyExpression)
+    {
+        Sql.Append("LEFT JOIN LATERAL ");
+        Visit(outerApplyExpression.Table);
+        Sql.Append(" ON TRUE");
+
+        return outerApplyExpression;
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
     /// Databricks' <c>COUNT</c> returns <c>BIGINT</c>, but EF materializes
     /// <see cref="Queryable.Count{TSource}(IQueryable{TSource})" /> as an <see cref="int" /> and
     /// the data reader will not narrow a <c>BIGINT</c> column. Narrowing in SQL keeps the

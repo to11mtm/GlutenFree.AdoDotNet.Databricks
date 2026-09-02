@@ -131,4 +131,53 @@ public class QuerySqlGenerationTests
             WHERE `o`.`Amount` > 100.0
             """,
             Sql(c => c.Orders.Where(o => o.Amount > 100m).Select(o => new { o.Id, o.Customer })));
+
+    [Fact]
+    public void String_concatenation_uses_the_pipe_operator()
+        // Spark's '+' is arithmetic only: it coerces operands to numbers and yields NULL.
+        => AssertSql(
+            """
+            SELECT `o`.`Customer` || '!'
+            FROM `orders` AS `o`
+            """,
+            Sql(c => c.Orders.Select(o => o.Customer + "!")));
+
+    [Fact]
+    public void Numeric_addition_still_uses_plus()
+        => AssertSql(
+            """
+            SELECT `o`.`Amount` + 1.0
+            FROM `orders` AS `o`
+            """,
+            Sql(c => c.Orders.Select(o => o.Amount + 1m)));
+
+    [Fact]
+    public void Date_arithmetic_uses_timestampadd()
+        => AssertSql(
+            """
+            SELECT timestampadd(MONTH, 2, `o`.`PlacedAt`)
+            FROM `orders` AS `o`
+            """,
+            Sql(c => c.Orders.Select(o => o.PlacedAt.AddMonths(2))));
+
+    [Fact]
+    public void Fractional_date_arithmetic_is_not_translated()
+    {
+        // timestampadd takes an integral amount; rather than truncating behind the caller's
+        // back the translation is declined, leaving EF to evaluate it on the client.
+        var sql = Sql(c => c.Orders.Select(o => o.PlacedAt.AddDays(1.5)));
+
+        Assert.DoesNotContain("timestampadd", sql, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Correlated_collections_avoid_apply()
+    {
+        // EF rewrites these into ROW_NUMBER() subqueries; Databricks has no APPLY, so if that
+        // ever changes the generator's LATERAL fallback needs to be exercised instead.
+        var sql = Sql(c => c.Orders.SelectMany(o => o.Lines.OrderBy(l => l.Id).Take(2)));
+
+        Assert.DoesNotContain("APPLY", sql, StringComparison.Ordinal);
+        Assert.Contains("ROW_NUMBER()", sql, StringComparison.Ordinal);
+    }
 }

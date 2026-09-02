@@ -15,6 +15,22 @@ public class Order
     public bool Shipped { get; set; }
 
     public DateTime PlacedAt { get; set; }
+
+    public List<OrderLine> Lines { get; } = [];
+}
+
+/// <summary>A dependent entity, so collection navigations can be exercised.</summary>
+public class OrderLine
+{
+    public long Id { get; set; }
+
+    public long OrderId { get; set; }
+
+    public string Sku { get; set; } = string.Empty;
+
+    public int Quantity { get; set; }
+
+    public Order? Order { get; set; }
 }
 
 /// <summary>Test context wired to the Databricks provider.</summary>
@@ -24,6 +40,8 @@ public class TestContext(DbContextOptions<TestContext> options) : DbContext(opti
         "Host=https://adb-1.azuredatabricks.net;WarehouseId=wh1;Token=dapi123;Catalog=main;Schema=sales";
 
     public DbSet<Order> Orders => Set<Order>();
+
+    public DbSet<OrderLine> OrderLines => Set<OrderLine>();
 
     /// <summary>Creates a context over the given connection string.</summary>
     public static TestContext Create(
@@ -57,6 +75,14 @@ public class TestContext(DbContextOptions<TestContext> options) : DbContext(opti
             // client-generated (see planning/efcore-provider-plan.md §2.2).
             b.Property(o => o.Id).ValueGeneratedNever();
             b.Property(o => o.Amount).HasColumnType("DECIMAL(18, 2)");
+        });
+
+        modelBuilder.Entity<OrderLine>(b =>
+        {
+            b.ToTable("order_lines");
+            b.HasKey(l => l.Id);
+            b.Property(l => l.Id).ValueGeneratedNever();
+            b.HasOne(l => l.Order).WithMany(o => o.Lines).HasForeignKey(l => l.OrderId);
         });
     }
 }

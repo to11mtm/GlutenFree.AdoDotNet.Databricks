@@ -1,4 +1,5 @@
 using GlutenFree.EntityFrameworkCore.Databricks.Storage.Internal;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 
 namespace GlutenFree.EntityFrameworkCore.Databricks.Tests;
@@ -44,4 +45,38 @@ public class SqlGenerationHelperTests
     [Fact]
     public void Schema_qualified_identifiers_quote_both_parts()
         => Assert.Equal("`sales`.`orders`", CreateHelper().DelimitIdentifier("orders", "sales"));
+
+    /// <summary>Renders a query to SQL, for the literal-escaping assertions below.</summary>
+    private static string Sql<T>(Func<TestContext, IQueryable<T>> query)
+    {
+        using var context = TestContext.Create();
+        return query(context).ToQueryString();
+    }
+
+    [Fact]
+    public void String_literals_use_spark_backslash_escaping()
+    {
+        // Doubling the quote ('') is read by Spark as two adjacent literals concatenated,
+        // which silently drops the quote; backslash escaping is the correct form.
+        var sql = Sql(c => c.Orders.Where(o => o.Customer == "it's"));
+
+        Assert.Contains(@"'it\'s'", sql, StringComparison.Ordinal);
+        Assert.DoesNotContain("'it''s'", sql, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Backslashes_in_string_literals_are_escaped()
+    {
+        var sql = Sql(c => c.Orders.Where(o => o.Customer == @"a\b"));
+
+        Assert.Contains(@"'a\\b'", sql, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Char_arguments_render_as_string_literals()
+    {
+        var sql = Sql(c => c.Orders.Select(o => o.Customer.PadLeft(6, '.')));
+
+        Assert.Contains("lpad(`o`.`Customer`, 6, '.')", sql, StringComparison.Ordinal);
+    }
 }

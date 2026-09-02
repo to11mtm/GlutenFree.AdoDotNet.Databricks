@@ -40,10 +40,12 @@ public class DatabricksTypeMappingSource : RelationalTypeMappingSource
     private readonly DateOnlyTypeMapping _date = new("DATE", System.Data.DbType.Date);
     private readonly DateTimeTypeMapping _timestampNtz = new("TIMESTAMP_NTZ", System.Data.DbType.DateTime2);
     private readonly DateTimeOffsetTypeMapping _timestamp = new("TIMESTAMP", System.Data.DbType.DateTimeOffset);
-    private readonly StringTypeMapping _string = new("STRING", System.Data.DbType.String, unicode: true);
+    private readonly StringTypeMapping _string = new DatabricksStringTypeMapping();
     private readonly ByteArrayTypeMapping _binary = new("BINARY", System.Data.DbType.Binary);
     private readonly GuidTypeMapping _guid = new("STRING", System.Data.DbType.String);
     private readonly TimeSpanTypeMapping _interval = new("INTERVAL DAY TO SECOND", System.Data.DbType.Time);
+
+    private readonly RelationalTypeMapping _char = new DatabricksCharTypeMapping();
 
     private readonly Dictionary<Type, RelationalTypeMapping> _clrTypeMappings;
     private readonly Dictionary<string, RelationalTypeMapping> _storeTypeMappings;
@@ -74,7 +76,7 @@ public class DatabricksTypeMappingSource : RelationalTypeMappingSource
             [typeof(DateTimeOffset)] = _timestamp,
             [typeof(TimeSpan)] = _interval,
             [typeof(string)] = _string,
-            [typeof(char)] = _string,
+            [typeof(char)] = _char,
             [typeof(byte[])] = _binary,
             [typeof(Guid)] = _guid,
         };
