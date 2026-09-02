@@ -12,6 +12,7 @@ namespace GlutenFree.Databricks.AdoNet;
 public sealed class DatabricksCommand : DbCommand
 {
     private DatabricksConnection? _connection;
+    private DatabricksTransaction? _transaction;
     private string _commandText = string.Empty;
     private int? _commandTimeout;
     private CancellationTokenSource? _userCancellation;
@@ -90,14 +91,36 @@ public sealed class DatabricksCommand : DbCommand
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Transaction state lives in the connection's session, so statements participate in an
+    /// active transaction whether or not this property is set; setting it is validated but not
+    /// otherwise load-bearing.
+    /// </remarks>
+    /// <exception cref="InvalidOperationException">
+    /// The transaction belongs to a different connection, or has already completed.
+    /// </exception>
     protected override DbTransaction? DbTransaction
     {
-        get => null;
+        get => _transaction;
         set
         {
-            if (value is not null)
+            switch (value)
             {
-                throw new NotSupportedException("Databricks SQL does not support transactions.");
+                case null:
+                    _transaction = null;
+                    break;
+                case DatabricksTransaction transaction when transaction.IsCompleted:
+                    throw new InvalidOperationException(
+                        "The transaction has already been committed or rolled back.");
+                case DatabricksTransaction transaction
+                    when _connection is not null && !ReferenceEquals(transaction.Connection, _connection):
+                    throw new InvalidOperationException(
+                        "The transaction belongs to a different connection than the command.");
+                case DatabricksTransaction transaction:
+                    _transaction = transaction;
+                    break;
+                default:
+                    throw new InvalidCastException($"Expected a {nameof(DatabricksTransaction)}.");
             }
         }
     }

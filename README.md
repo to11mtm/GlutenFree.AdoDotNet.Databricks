@@ -210,9 +210,20 @@ integration projects stay REST-only and have no dependency on the Thrift add-on.
   report issues and we'll prepare test branches/draft PRs for you to verify against your
   cluster; PRs from users with cluster access are welcome, and we'll test what we can
   (warehouse paths, CI) on your branch.
-- **No multi-statement transactions** — Databricks SQL doesn't support them;
-  `BeginTransaction` throws `NotSupportedException`. (The linq2db provider declares
-  `TransactionsSupported=false` so linq2db never attempts one.)
+- **Transactions require the Thrift transport** — Databricks supports interactive
+  transactions (`BEGIN TRANSACTION` … `COMMIT`/`ROLLBACK`) as *session* state, so
+  `BeginTransaction()` works only on the session-based
+  [Thrift transport](#thrift-transport-opt-in); on the stateless REST transport it throws
+  `NotSupportedException`. On either transport you can submit a self-contained
+  `BEGIN ATOMIC … END;` block as a single statement for an atomic multi-statement unit
+  of work. Databricks additionally requires every table written to in a transaction to be
+  a Unity Catalog managed Delta/Iceberg table with catalog commits enabled, forbids
+  DDL/metadata operations inside an interactive transaction, allows one transaction at a
+  time per connection, and has no savepoints. Conflicts are detected optimistically at
+  commit, so build retry logic. See the
+  [Databricks transactions docs](https://docs.databricks.com/aws/en/transactions/).
+  (The linq2db provider still declares `TransactionsSupported=false`, since its data
+  provider is a singleton shared by both transports.)
 - **Input parameters only** — no output/return parameters, no stored procedures.
 - **`BINARY` parameters unsupported** by the Statement Execution API — pass hex/base64
   strings and decode in SQL.

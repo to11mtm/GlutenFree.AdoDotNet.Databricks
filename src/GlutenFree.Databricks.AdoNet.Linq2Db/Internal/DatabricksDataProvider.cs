@@ -46,7 +46,13 @@ public sealed class DatabricksDataProvider : DataProviderBase
     public override Type DataReaderType => typeof(DatabricksDataReader);
 
     /// <inheritdoc />
-    /// <remarks>Databricks SQL has no multi-statement transactions.</remarks>
+    /// <remarks>
+    /// Databricks supports interactive transactions only over a session-based transport
+    /// (Thrift), but a linq2db data provider is a singleton shared by every connection
+    /// regardless of transport, so this stays <see langword="false"/>: declaring support
+    /// would break connections using the stateless REST transport. Callers needing
+    /// atomicity can execute a <c>BEGIN ATOMIC ... END;</c> block as a single statement.
+    /// </remarks>
     public override bool TransactionsSupported => false;
 
     /// <inheritdoc />

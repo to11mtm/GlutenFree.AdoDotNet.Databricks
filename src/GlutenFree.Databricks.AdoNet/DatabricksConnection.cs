@@ -10,10 +10,10 @@ namespace GlutenFree.Databricks.AdoNet;
 /// An ADO.NET connection to a Databricks SQL warehouse.
 /// </summary>
 /// <remarks>
-/// The underlying REST transport is stateless HTTP: <see cref="Open()"/> validates
+/// The default REST transport is stateless HTTP: <see cref="Open()"/> validates
 /// configuration and prepares the transport rather than establishing a socket session.
-/// Databricks SQL does not support multi-statement transactions, so
-/// <see cref="BeginDbTransaction"/> throws <see cref="NotSupportedException"/>.
+/// <see cref="BeginDbTransaction"/> therefore requires a session-capable transport
+/// (Thrift); see <see cref="DatabricksTransaction"/>.
 /// </remarks>
 public sealed class DatabricksConnection : DbConnection
 {
@@ -21,6 +21,7 @@ public sealed class DatabricksConnection : DbConnection
     private IDatabricksTransport? _transport;
     private IDatabricksAuthenticator? _authenticator;
     private ConnectionState _state = ConnectionState.Closed;
+    private DatabricksTransaction? _transaction;
     private string _catalog = string.Empty;
     private string _schema = string.Empty;
 
@@ -182,6 +183,7 @@ public sealed class DatabricksConnection : DbConnection
     /// <remarks>Genuinely synchronous: transport teardown has a synchronous path.</remarks>
     public override void Close()
     {
+        AbandonTransaction();
         DisposeTransport();
         _state = ConnectionState.Closed;
     }
@@ -189,24 +191,56 @@ public sealed class DatabricksConnection : DbConnection
     /// <inheritdoc />
     public override async Task CloseAsync()
     {
+        AbandonTransaction();
         await DisposeTransportAsync().ConfigureAwait(false);
         _state = ConnectionState.Closed;
     }
 
+    /// <summary>
+    /// Ends any active transaction locally. Closing the connection ends the server-side
+    /// session, which discards uncommitted work — there is no point issuing a ROLLBACK
+    /// over a transport that is about to be torn down.
+    /// </summary>
+    private void AbandonTransaction()
+    {
+        _transaction?.MarkAbandoned();
+        _transaction = null;
+    }
+
     /// <inheritdoc />
+    /// <exception cref="InvalidOperationException">A transaction is active.</exception>
     public override void ChangeDatabase(string databaseName)
     {
         ArgumentException.ThrowIfNullOrEmpty(databaseName);
         EnsureOpen();
+        EnsureNoActiveTransaction(nameof(ChangeDatabase));
         _schema = databaseName;
     }
 
     /// <summary>Changes the default catalog for subsequent statements on this connection.</summary>
+    /// <exception cref="InvalidOperationException">A transaction is active.</exception>
     public void ChangeCatalog(string catalogName)
     {
         ArgumentException.ThrowIfNullOrEmpty(catalogName);
         EnsureOpen();
+        EnsureNoActiveTransaction(nameof(ChangeCatalog));
         _catalog = catalogName;
+    }
+
+    /// <summary>
+    /// Guards operations that would emit a <c>USE</c> statement on the session. Databricks
+    /// does not allow metadata operations inside an interactive transaction, so changing the
+    /// catalog or schema mid-transaction would fail at the server with a confusing error.
+    /// </summary>
+    private void EnsureNoActiveTransaction(string operation)
+    {
+        if (CurrentTransaction is not null)
+        {
+            throw new InvalidOperationException(
+                $"{operation} cannot be called while a transaction is active: Databricks does not "
+                + "support metadata operations inside an interactive transaction. Commit or roll "
+                + "back the transaction first.");
+        }
     }
 
     /// <summary>Creates a command associated with this connection.</summary>
@@ -240,13 +274,78 @@ public sealed class DatabricksConnection : DbConnection
     protected override DbCommand CreateDbCommand() => CreateCommand();
 
     /// <inheritdoc />
-    /// <exception cref="NotSupportedException">
-    /// Always: Databricks SQL does not support multi-statement transactions.
+    /// <remarks>
+    /// Databricks supports interactive transactions (<c>BEGIN TRANSACTION</c> …
+    /// <c>COMMIT</c>/<c>ROLLBACK</c>) as session state, so this requires a transport that
+    /// maintains a session — the Thrift transport. On the stateless REST transport there is
+    /// nowhere for the transaction to live and this throws; submit a self-contained
+    /// <c>BEGIN ATOMIC ... END;</c> block as a single statement instead.
+    /// See <see cref="DatabricksTransaction"/> for the requirements Databricks places on
+    /// transactional tables.
+    /// </remarks>
+    /// <exception cref="NotSupportedException">The transport does not maintain a session.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// The connection is not open, or a transaction is already active.
     /// </exception>
     protected override DbTransaction BeginDbTransaction(IsolationLevel isolationLevel)
-        => throw new NotSupportedException(
-            "Databricks SQL does not support multi-statement transactions. " +
-            "Each statement is executed atomically by the server.");
+    {
+        EnsureOpen();
+        if (!Transport.SupportsTransactions)
+        {
+            throw new NotSupportedException(
+                "The REST (Statement Execution API) transport is stateless and cannot hold "
+                + "transaction state. Install the GlutenFree.Databricks.AdoNet.Thrift package and "
+                + "call UseThriftTransport() to use interactive transactions, or submit a "
+                + "'BEGIN ATOMIC ... END;' block as a single statement for an atomic multi-statement "
+                + "unit of work.");
+        }
+
+        if (_transaction is { IsCompleted: false })
+        {
+            throw new InvalidOperationException(
+                "A transaction is already active on this connection. Databricks allows only one "
+                + "transaction at a time per session; commit or roll back the current transaction first.");
+        }
+
+        ExecuteControlStatement(DatabricksTransactionSql.Begin);
+        var transaction = new DatabricksTransaction(this, isolationLevel);
+        _transaction = transaction;
+        return transaction;
+    }
+
+    /// <summary>The transaction currently active on this connection, if any.</summary>
+    public DatabricksTransaction? CurrentTransaction => _transaction is { IsCompleted: false } t ? t : null;
+
+    /// <summary>
+    /// Executes a transaction-control statement (<c>BEGIN TRANSACTION</c>, <c>COMMIT</c>,
+    /// <c>ROLLBACK</c>) on this connection's session, discarding any result.
+    /// </summary>
+    internal void ExecuteControlStatement(string sql)
+    {
+        using var command = CreateCommand();
+        command.CommandText = sql;
+        command.ExecuteNonQuery();
+    }
+
+    /// <summary>Asynchronous counterpart of <see cref="ExecuteControlStatement"/>.</summary>
+    internal async Task ExecuteControlStatementAsync(string sql, CancellationToken cancellationToken)
+    {
+        var command = CreateCommand();
+        await using (command.ConfigureAwait(false))
+        {
+            command.CommandText = sql;
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Clears the active transaction once it completes.</summary>
+    internal void ClearTransaction(DatabricksTransaction transaction)
+    {
+        if (ReferenceEquals(_transaction, transaction))
+        {
+            _transaction = null;
+        }
+    }
 
     /// <inheritdoc />
     protected override void Dispose(bool disposing)

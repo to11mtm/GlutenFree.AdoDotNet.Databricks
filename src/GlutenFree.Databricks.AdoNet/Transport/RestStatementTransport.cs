@@ -67,6 +67,14 @@ public sealed class RestStatementTransport : IDatabricksTransport
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Always <see langword="false"/>: the Statement Execution API is stateless — each statement
+    /// is independent, so there is no session to carry transaction state. A multi-statement unit
+    /// of work must be submitted as a single self-contained <c>BEGIN ATOMIC ... END;</c> block.
+    /// </remarks>
+    public bool SupportsTransactions => false;
+
+    /// <inheritdoc />
     public async Task<StatementResponse> ExecuteStatementAsync(
         StatementRequest request,
         TimeSpan commandTimeout,

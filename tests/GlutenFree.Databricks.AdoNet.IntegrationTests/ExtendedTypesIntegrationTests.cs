@@ -10,7 +10,7 @@ public class ExtendedTypesIntegrationTests : IAsyncLifetime
 {
     private DatabricksConnection _connection = null!;
 
-    public async Task InitializeAsync()
+    public async ValueTask InitializeAsync()
     {
         if (!IntegrationConfig.IsConfigured)
         {
@@ -21,7 +21,7 @@ public class ExtendedTypesIntegrationTests : IAsyncLifetime
         await _connection.OpenAsync();
     }
 
-    public async Task DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
         if (_connection is not null)
         {

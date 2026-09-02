@@ -14,6 +14,19 @@ namespace GlutenFree.Databricks.AdoNet.Transport;
 public interface IDatabricksTransport : IAsyncDisposable, IDisposable
 {
     /// <summary>
+    /// True when the transport maintains a server-side session that can hold interactive
+    /// transaction state (<c>BEGIN TRANSACTION</c> / <c>COMMIT</c> / <c>ROLLBACK</c>).
+    /// </summary>
+    /// <remarks>
+    /// Interactive transactions are session state, so a stateless transport (the REST
+    /// Statement Execution API) cannot support them and returns <see langword="false"/>;
+    /// callers there must use a self-contained <c>BEGIN ATOMIC ... END;</c> block instead.
+    /// The default is the conservative <see langword="false"/> so that transports written
+    /// against an earlier version of this interface keep compiling and behaving correctly.
+    /// </remarks>
+    bool SupportsTransactions => false;
+
+    /// <summary>
     /// Submits a statement and waits (server-side hybrid wait plus client-side polling)
     /// until it reaches a terminal or result-ready state.
     /// Throws <see cref="DatabricksException"/> for FAILED/CANCELED/CLOSED statements.

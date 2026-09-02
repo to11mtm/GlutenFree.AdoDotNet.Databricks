@@ -14,7 +14,7 @@ public class NumericTypesIntegrationTests : IAsyncLifetime
     private readonly string _runId = Guid.NewGuid().ToString("N");
     private DatabricksConnection _connection = null!;
 
-    public async Task InitializeAsync()
+    public async ValueTask InitializeAsync()
     {
         if (!IntegrationConfig.IsConfigured)
         {
@@ -32,7 +32,7 @@ public class NumericTypesIntegrationTests : IAsyncLifetime
             "f FLOAT, d DOUBLE, small_dec DECIMAL(18,4), big_dec DECIMAL(38,0), n INT)");
     }
 
-    public async Task DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
         if (_connection is null)
         {

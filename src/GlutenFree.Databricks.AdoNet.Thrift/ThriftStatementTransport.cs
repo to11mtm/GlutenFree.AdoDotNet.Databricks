@@ -107,6 +107,14 @@ public sealed class ThriftStatementTransport : IDatabricksTransport
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Always <see langword="true"/>: one <c>AdbcConnection</c> is one server-side Thrift
+    /// session for the lifetime of this transport, so <c>BEGIN TRANSACTION</c> state persists
+    /// across commands.
+    /// </remarks>
+    public bool SupportsTransactions => true;
+
+    /// <inheritdoc />
     public async Task<StatementResponse> ExecuteStatementAsync(
         StatementRequest request,
         TimeSpan commandTimeout,

@@ -53,7 +53,10 @@ public sealed class AllPurposeClusterIntegrationTests
 
     private sealed class ClusterIntegrationFactAttribute : FactAttribute
     {
-        public ClusterIntegrationFactAttribute()
+        public ClusterIntegrationFactAttribute(
+            [System.Runtime.CompilerServices.CallerFilePath] string? sourceFilePath = null,
+            [System.Runtime.CompilerServices.CallerLineNumber] int sourceLineNumber = -1)
+            : base(sourceFilePath, sourceLineNumber)
         {
             if (IntegrationConfig.Host is null || IntegrationConfig.Token is null)
             {

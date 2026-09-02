@@ -50,11 +50,12 @@ public class DatabricksConnectionTests
     }
 
     [Fact]
-    public async Task BeginTransaction_throws_NotSupported()
+    public async Task BeginTransaction_throws_NotSupported_on_stateless_transport()
     {
         var (connection, _) = CreateOpenable();
         await connection.OpenAsync();
-        Assert.Throws<NotSupportedException>(() => connection.BeginTransaction());
+        var ex = Assert.Throws<NotSupportedException>(() => connection.BeginTransaction());
+        Assert.Contains("BEGIN ATOMIC", ex.Message, StringComparison.Ordinal);
     }
 
     [Fact]

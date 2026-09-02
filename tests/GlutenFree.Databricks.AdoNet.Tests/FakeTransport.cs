@@ -14,6 +14,12 @@ public sealed class FakeTransport : IDatabricksTransport
     public Dictionary<string, byte[]> ExternalLinkData { get; } = [];
     public bool Disposed { get; private set; }
 
+    /// <summary>Emulates a session-capable transport (the Thrift transport) when set.</summary>
+    public bool SupportsTransactions { get; set; }
+
+    /// <summary>The statement texts executed so far, in order.</summary>
+    public IEnumerable<string> ExecutedSql => ExecutedRequests.Select(r => r.Statement);
+
     /// <summary>True when teardown went through the synchronous <see cref="Dispose"/> path.</summary>
     public bool DisposedSynchronously { get; private set; }
 

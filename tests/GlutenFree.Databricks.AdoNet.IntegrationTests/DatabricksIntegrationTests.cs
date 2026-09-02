@@ -19,7 +19,7 @@ public class DatabricksIntegrationTests : IAsyncLifetime
     private readonly string _runId = Guid.NewGuid().ToString("N");
     private DatabricksConnection _connection = null!;
 
-    public async Task InitializeAsync()
+    public async ValueTask InitializeAsync()
     {
         if (!IntegrationConfig.IsConfigured)
         {
@@ -37,7 +37,7 @@ public class DatabricksIntegrationTests : IAsyncLifetime
             $"CREATE TABLE IF NOT EXISTS {Catalog}.{Schema}.schema_probe (a INT, b STRING)");
     }
 
-    public async Task DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
         if (_connection is null)
         {
