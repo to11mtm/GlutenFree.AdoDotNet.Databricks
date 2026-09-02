@@ -10,6 +10,7 @@ server-side sessions. No ODBC Jank needed, pure .NET 8, async-first, injection-s
 |---|---|
 | `GlutenFree.Databricks.AdoNet` | Core ADO.NET provider (`DbConnection`/`DbCommand`/`DbDataReader`) |
 | `GlutenFree.Databricks.AdoNet.Linq2Db` | [linq2db](https://github.com/linq2db/linq2db) data provider |
+| `GlutenFree.Databricks.AdoNet.Linq2Db.Thrift` | linq2db provider flavor over the Thrift transport — enables interactive transactions |
 | `GlutenFree.Databricks.AdoNet.Thrift` | Opt-in Thrift transport (real sessions), built on the [Apache Arrow ADBC Databricks driver](https://www.nuget.org/packages/Apache.Arrow.Adbc.Drivers.Databricks) |
 
 ## Features
@@ -157,6 +158,19 @@ What changes with Thrift:
   names and type names.
 - **Result streaming** (CloudFetch, LZ4) is handled inside the ADBC driver and surfaces
   through the same `DatabricksDataReader`.
+- **Interactive transactions** — `BeginTransaction()` works (transactions are session
+  state; see [Current Limitations](#current-limitations) for Databricks' requirements).
+  For linq2db, use the `GlutenFree.Databricks.AdoNet.Linq2Db.Thrift` package, whose
+  provider flavor declares transaction support and wires up the Thrift transport for you:
+
+  ```csharp
+  using GlutenFree.Databricks.AdoNet.Linq2Db.Thrift;
+
+  using var db = DatabricksThriftTools.CreateDataConnection(connectionString);
+  using var tx = db.BeginTransaction();
+  db.Insert(new Order { /* ... */ });
+  tx.Commit(); // or tx.Rollback(); disposing without committing rolls back
+  ```
 - The add-on carries heavier transitive dependencies (ApacheThrift and friends) — that's
   why it ships as a separate opt-in package rather than in the core provider.
 
@@ -222,8 +236,11 @@ integration projects stay REST-only and have no dependency on the Thrift add-on.
   time per connection, and has no savepoints. Conflicts are detected optimistically at
   commit, so build retry logic. See the
   [Databricks transactions docs](https://docs.databricks.com/aws/en/transactions/).
-  (The linq2db provider still declares `TransactionsSupported=false`, since its data
-  provider is a singleton shared by both transports.)
+  (The linq2db provider in `GlutenFree.Databricks.AdoNet.Linq2Db` declares
+  `TransactionsSupported=false`, since its data provider is a singleton shared by both
+  transports; for linq2db transactions use the `GlutenFree.Databricks.AdoNet.Linq2Db.Thrift`
+  package's `DatabricksThriftTools`, whose provider flavor runs over the Thrift transport
+  and declares `TransactionsSupported=true`.)
 - **Input parameters only** — no output/return parameters, no stored procedures.
 - **`BINARY` parameters unsupported** by the Statement Execution API — pass hex/base64
   strings and decode in SQL.

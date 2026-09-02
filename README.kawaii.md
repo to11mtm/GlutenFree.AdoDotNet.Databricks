@@ -216,9 +216,15 @@ dependency on the Thrift add-on. Clean separation, uwu! 🧪
   Edition, sob 😢) — report issues and we'll prepare test branches/draft PRs for you to
   verify against your cluster! PRs from users with cluster access are super welcome, and
   we'll test what we can (warehouse paths, CI) on your branch~ 🤝💕
-- **No multi-statement transactions** — Databricks SQL doesn't support them;
-  `BeginTransaction` throws `NotSupportedException`. (The linq2db provider declares
-  `TransactionsSupported=false` so linq2db never even tries, so smart!)
+- **Transactions need the Thrift transport** — interactive transactions
+  (`BEGIN TRANSACTION` … `COMMIT`/`ROLLBACK`) are *session* state, so `BeginTransaction`
+  only works on the session-y [Thrift transport](#-thrift-transport-opt-in-choo-choo-);
+  on stateless REST it throws `NotSupportedException`. (For linq2db, grab the
+  `GlutenFree.Databricks.AdoNet.Linq2Db.Thrift` package and use `DatabricksThriftTools` —
+  its provider flavor declares `TransactionsSupported=true` and rides the Thrift train
+  automatically, so smart! The plain linq2db provider stays `TransactionsSupported=false`
+  so REST connections never even try~) Tables written in a transaction must be UC managed
+  Delta/Iceberg with catalog commits enabled, and there are no savepoints, gomen!
 - **Input parameters only** — no output/return parameters, no stored procedures. (｡•́︿•̀｡)
 - **`BINARY` parameters unsupported** by the Statement Execution API — pass hex/base64
   strings and decode in SQL instead~

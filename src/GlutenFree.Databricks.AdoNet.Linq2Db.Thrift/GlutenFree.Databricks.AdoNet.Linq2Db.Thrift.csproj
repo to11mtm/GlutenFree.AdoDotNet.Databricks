@@ -1,0 +1,19 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>GlutenFree.Databricks.AdoNet.Linq2Db.Thrift</PackageId>
+    <Description>Thrift (session-based) transport flavor of the GlutenFree.Databricks.AdoNet linq2db provider, enabling interactive transactions on Databricks.</Description>
+    <PackageTags>databricks;linq2db;linq;sql;data;provider;thrift;transactions</PackageTags>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="GlutenFree.Databricks.AdoNet.Linq2Db.Thrift.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\GlutenFree.Databricks.AdoNet.Linq2Db\GlutenFree.Databricks.AdoNet.Linq2Db.csproj" />
+    <ProjectReference Include="..\GlutenFree.Databricks.AdoNet.Thrift\GlutenFree.Databricks.AdoNet.Thrift.csproj" />
+  </ItemGroup>
+
+</Project>

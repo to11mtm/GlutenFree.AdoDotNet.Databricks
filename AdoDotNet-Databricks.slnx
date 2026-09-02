@@ -12,6 +12,7 @@
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/GlutenFree.Databricks.AdoNet.Linq2Db/GlutenFree.Databricks.AdoNet.Linq2Db.csproj" />
+    <Project Path="src/GlutenFree.Databricks.AdoNet.Linq2Db.Thrift/GlutenFree.Databricks.AdoNet.Linq2Db.Thrift.csproj" />
     <Project Path="src/GlutenFree.Databricks.AdoNet.Thrift/GlutenFree.Databricks.AdoNet.Thrift.csproj" />
     <Project Path="src/GlutenFree.Databricks.AdoNet/GlutenFree.Databricks.AdoNet.csproj" />
     <Project Path="src/GlutenFree.EntityFrameworkCore.Databricks/GlutenFree.EntityFrameworkCore.Databricks.csproj" />
@@ -21,6 +22,8 @@
     <Project Path="tests/GlutenFree.Databricks.AdoNet.IntegrationTests/GlutenFree.Databricks.AdoNet.IntegrationTests.csproj" />
     <Project Path="tests/GlutenFree.Databricks.AdoNet.Linq2Db.IntegrationTests/GlutenFree.Databricks.AdoNet.Linq2Db.IntegrationTests.csproj" />
     <Project Path="tests/GlutenFree.Databricks.AdoNet.Linq2Db.Tests/GlutenFree.Databricks.AdoNet.Linq2Db.Tests.csproj" />
+    <Project Path="tests/GlutenFree.Databricks.AdoNet.Linq2Db.Thrift.IntegrationTests/GlutenFree.Databricks.AdoNet.Linq2Db.Thrift.IntegrationTests.csproj" />
+    <Project Path="tests/GlutenFree.Databricks.AdoNet.Linq2Db.Thrift.Tests/GlutenFree.Databricks.AdoNet.Linq2Db.Thrift.Tests.csproj" />
     <Project Path="tests/GlutenFree.Databricks.AdoNet.Tests/GlutenFree.Databricks.AdoNet.Tests.csproj" />
     <Project Path="tests/GlutenFree.Databricks.AdoNet.Thrift.IntegrationTests/GlutenFree.Databricks.AdoNet.Thrift.IntegrationTests.csproj" />
     <Project Path="tests/GlutenFree.Databricks.AdoNet.Thrift.Tests/GlutenFree.Databricks.AdoNet.Thrift.Tests.csproj" />

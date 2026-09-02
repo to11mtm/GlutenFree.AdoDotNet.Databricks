@@ -1,5 +1,9 @@
 # Plan: linq2db transaction support over the Thrift transport
 
+> **Status: implemented** — `GlutenFree.Databricks.AdoNet.Linq2Db.Thrift` package,
+> unit tests (`…Linq2Db.Thrift.Tests`) and live-verified integration tests
+> (`…Linq2Db.Thrift.IntegrationTests`, gated by `DATABRICKS_TRANSACTIONS=1`).
+
 ## 1. Background
 
 The ADO.NET layer already supports interactive transactions (`BEGIN TRANSACTION` …

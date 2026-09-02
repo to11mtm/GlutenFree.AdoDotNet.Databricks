@@ -12,6 +12,9 @@
     <InternalsVisibleTo Include="GlutenFree.Databricks.AdoNet.DecimalTests" />
     <!-- The Thrift transport add-on wires itself in via the internal TransportFactory hook. -->
     <InternalsVisibleTo Include="GlutenFree.Databricks.AdoNet.Thrift" />
+    <!-- The linq2db Thrift flavor checks/uses the same hook when configuring connections. -->
+    <InternalsVisibleTo Include="GlutenFree.Databricks.AdoNet.Linq2Db.Thrift" />
+    <InternalsVisibleTo Include="GlutenFree.Databricks.AdoNet.Linq2Db.Thrift.Tests" />
   </ItemGroup>
 
   <ItemGroup>

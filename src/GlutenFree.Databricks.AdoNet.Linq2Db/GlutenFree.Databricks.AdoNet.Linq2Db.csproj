@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="GlutenFree.Databricks.AdoNet.Linq2Db.Tests" />
+    <InternalsVisibleTo Include="GlutenFree.Databricks.AdoNet.Linq2Db.Thrift" />
   </ItemGroup>
 
   <ItemGroup>
