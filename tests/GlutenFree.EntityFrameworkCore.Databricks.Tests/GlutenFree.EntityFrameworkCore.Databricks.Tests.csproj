@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <!--
+      EF1001 flags use of *.Internal APIs. Provider infrastructure lives in those namespaces
+      by convention, and these tests exercise it deliberately (EF Core's own test projects
+      suppress this the same way).
+    -->
+    <NoWarn>$(NoWarn);EF1001</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\GlutenFree.EntityFrameworkCore.Databricks\GlutenFree.EntityFrameworkCore.Databricks.csproj" />
+  </ItemGroup>
+
+</Project>

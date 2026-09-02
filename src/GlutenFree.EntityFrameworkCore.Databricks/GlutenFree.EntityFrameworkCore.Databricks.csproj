@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- EF Core 10 requires net10.0; overrides the repo-wide net8.0. -->
+    <TargetFramework>net10.0</TargetFramework>
+    <PackageId>GlutenFree.EntityFrameworkCore.Databricks</PackageId>
+    <Description>Entity Framework Core provider for Databricks SQL warehouses, built on GlutenFree.Databricks.AdoNet.</Description>
+    <PackageTags>databricks;entity-framework-core;efcore;sql;data;provider</PackageTags>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- Provider version tracks the EF Core major. -->
+    <VersionPrefix>10.0.0</VersionPrefix>
+    <!-- Not shipped yet: the provider is a skeleton, so keep it out of release packing. -->
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="GlutenFree.EntityFrameworkCore.Databricks.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\GlutenFree.Databricks.AdoNet\GlutenFree.Databricks.AdoNet.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- PrivateAssets="none" so the EF Core analyzer flows to consumers. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.11" PrivateAssets="none" />
+  </ItemGroup>
+
+</Project>
