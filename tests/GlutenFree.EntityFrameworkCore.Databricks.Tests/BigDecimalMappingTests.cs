@@ -22,10 +22,17 @@ public class BigDecimalMappingTests
         public decimal Narrow { get; set; }
     }
 
-    private class MoneyContext(DbContextOptions<MoneyContext> options, string narrowColumnType)
-        : DbContext(options)
+    /// <summary>
+    /// Base for the model variants. EF caches the built model per (context type, options), so
+    /// each variant needs its own context type — otherwise whichever test runs first decides
+    /// the model both of them see.
+    /// </summary>
+    private abstract class MoneyContextBase(DbContextOptions options) : DbContext(options)
     {
         public DbSet<Money> Amounts => Set<Money>();
+
+        /// <summary>The column type for the <see cref="Money.Narrow" /> property.</summary>
+        protected abstract string NarrowColumnType { get; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
             => modelBuilder.Entity<Money>(b =>
@@ -34,15 +41,30 @@ public class BigDecimalMappingTests
                 b.HasKey(m => m.Id);
                 b.Property(m => m.Id).ValueGeneratedNever();
                 b.Property(m => m.Exact).HasColumnType("DECIMAL(38, 10)");
-                b.Property(m => m.Narrow).HasColumnType(narrowColumnType);
+                b.Property(m => m.Narrow).HasColumnType(NarrowColumnType);
             });
     }
 
-    private static MoneyContext CreateContext(
-        string narrowColumnType = "DECIMAL(18, 2)",
-        ILoggerFactory? loggerFactory = null)
+    /// <summary>A <c>decimal</c> on a column narrow enough to hold it.</summary>
+    private sealed class NarrowMoneyContext(DbContextOptions<NarrowMoneyContext> options)
+        : MoneyContextBase(options)
     {
-        var builder = new DbContextOptionsBuilder<MoneyContext>()
+        protected override string NarrowColumnType => "DECIMAL(18, 2)";
+    }
+
+    /// <summary>A <c>decimal</c> on a column wider than it can represent.</summary>
+    private sealed class WideMoneyContext(DbContextOptions<WideMoneyContext> options)
+        : MoneyContextBase(options)
+    {
+        protected override string NarrowColumnType => "DECIMAL(38, 0)";
+    }
+
+    private static TContext Create<TContext>(
+        Func<DbContextOptions<TContext>, TContext> factory,
+        ILoggerFactory? loggerFactory = null)
+        where TContext : DbContext
+    {
+        var builder = new DbContextOptionsBuilder<TContext>()
             .UseDatabricks(TestContext.ConnectionString);
 
         if (loggerFactory is not null)
@@ -50,13 +72,13 @@ public class BigDecimalMappingTests
             builder = builder.UseLoggerFactory(loggerFactory);
         }
 
-        return new MoneyContext(builder.Options, narrowColumnType);
+        return factory(builder.Options);
     }
 
     [Fact]
     public void DatabricksDecimal_maps_to_the_declared_decimal_column()
     {
-        using var context = CreateContext();
+        using var context = Create<NarrowMoneyContext>(o => new NarrowMoneyContext(o));
 
         var mapping = context.Model
             .FindEntityType(typeof(Money))!
@@ -93,7 +115,7 @@ public class BigDecimalMappingTests
         var logger = new CapturingLoggerProvider();
         using var factory = LoggerFactory.Create(b => b.AddProvider(logger).SetMinimumLevel(LogLevel.Warning));
 
-        using var context = CreateContext("DECIMAL(38, 0)", factory);
+        using var context = Create<WideMoneyContext>(o => new WideMoneyContext(o), factory);
         _ = context.Model;
 
         Assert.Contains(logger.Messages, m => m.Contains("Money.Narrow", StringComparison.Ordinal));
@@ -106,7 +128,7 @@ public class BigDecimalMappingTests
         var logger = new CapturingLoggerProvider();
         using var factory = LoggerFactory.Create(b => b.AddProvider(logger).SetMinimumLevel(LogLevel.Warning));
 
-        using var context = CreateContext("DECIMAL(18, 2)", factory);
+        using var context = Create<NarrowMoneyContext>(o => new NarrowMoneyContext(o), factory);
         _ = context.Model;
 
         Assert.DoesNotContain(logger.Messages, m => m.Contains("Money.Narrow", StringComparison.Ordinal));
