@@ -159,6 +159,11 @@ Preview caveats:
 - **Keys must be client-generated.** Databricks cannot report store-generated values back to
   EF, so configure `ValueGeneratedNever()` (identity columns and concurrency tokens are not
   supported yet).
+- **Wide `DECIMAL` columns need `DatabricksDecimal`.** Databricks allows `DECIMAL(38, s)`,
+  which is more precision than .NET's `decimal` can hold. Declare such properties as
+  `DatabricksDecimal` for a lossless mapping — the provider warns at model-validation time if
+  a `decimal` is pointed at a column wider than precision 28. (Note that `Sum`/`Average` have
+  no LINQ overloads for a custom struct, so aggregate over a projected `decimal` instead.)
 - **`SaveChanges` issues one statement per command.** With the REST transport it is therefore
   not atomic across entities; use the Thrift transport (real transactions) when you need
   atomicity. See [Current Limitations](#current-limitations).

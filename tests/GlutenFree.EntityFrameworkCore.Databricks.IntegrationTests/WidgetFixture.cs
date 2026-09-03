@@ -18,13 +18,19 @@ public class Widget
     public bool Active { get; set; }
 
     public DateTime CreatedAt { get; set; }
+
+    /// <summary>
+    /// A <c>DECIMAL(38, 10)</c> column: more precision than .NET's <see cref="decimal" /> can
+    /// hold, so it is mapped to the arbitrary-precision type.
+    /// </summary>
+    public DatabricksDecimal BigValue { get; set; }
 }
 
 /// <summary>Context mapping <see cref="Widget" /> onto the shared integration test table.</summary>
 public class WidgetContext(DbContextOptions<WidgetContext> options) : DbContext(options)
 {
     // Bump the version suffix rather than altering the table if its shape has to change.
-    public const string Schema = "adodotnet_ef_v2";
+    public const string Schema = "adodotnet_ef_v3";
     public const string Table = "ef_widgets";
 
     public DbSet<Widget> Widgets => Set<Widget>();
@@ -41,6 +47,7 @@ public class WidgetContext(DbContextOptions<WidgetContext> options) : DbContext(
             b.Property(w => w.Price).HasColumnName("price").HasColumnType("DECIMAL(18, 2)");
             b.Property(w => w.Active).HasColumnName("active");
             b.Property(w => w.CreatedAt).HasColumnName("created_at");
+            b.Property(w => w.BigValue).HasColumnName("big_value").HasColumnType("DECIMAL(38, 10)");
         });
 }
 
@@ -100,16 +107,18 @@ public abstract class WidgetFixture : IAsyncLifetime
                  name STRING,
                  price DECIMAL(18, 2),
                  active BOOLEAN,
-                 created_at TIMESTAMP_NTZ
+                 created_at TIMESTAMP_NTZ,
+                 big_value DECIMAL(38, 10)
              ) USING DELTA
              """);
 
         await using var seed = _connection.CreateCommand();
         seed.CommandText =
             $"INSERT INTO {QualifiedTable} VALUES "
-            + "(:run_id, 1, 'alpha', 10.50, true,  TIMESTAMP_NTZ'2026-03-01 08:00:00'), "
-            + "(:run_id, 2, 'beta',  20.00, false, TIMESTAMP_NTZ'2026-03-01 09:00:00'), "
-            + "(:run_id, 3, 'gamma', 30.25, true,  TIMESTAMP_NTZ'2026-03-01 10:00:00')";
+            // big_value carries 38 significant digits — more than a .NET decimal can hold.
+            + "(:run_id, 1, 'alpha', 10.50, true,  TIMESTAMP_NTZ'2026-03-01 08:00:00', 1234567890123456789012345678.1234567890), "
+            + "(:run_id, 2, 'beta',  20.00, false, TIMESTAMP_NTZ'2026-03-01 09:00:00', 0.0000000001), "
+            + "(:run_id, 3, 'gamma', 30.25, true,  TIMESTAMP_NTZ'2026-03-01 10:00:00', -9999999999999999999999999999.9999999999)";
         seed.Parameters.AddWithValue("run_id", _runId);
         await seed.ExecuteNonQueryAsync();
     }

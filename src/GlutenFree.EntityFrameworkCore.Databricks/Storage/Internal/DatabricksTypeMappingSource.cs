@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using GlutenFree.Databricks.AdoNet;
 using Microsoft.EntityFrameworkCore.Storage;
 
 namespace GlutenFree.EntityFrameworkCore.Databricks.Storage.Internal;
@@ -37,6 +38,7 @@ public class DatabricksTypeMappingSource : RelationalTypeMappingSource
     private readonly FloatTypeMapping _float = new("FLOAT", System.Data.DbType.Single);
     private readonly DoubleTypeMapping _double = new("DOUBLE", System.Data.DbType.Double);
     private readonly DecimalTypeMapping _decimal = new($"DECIMAL({MaxDecimalPrecision}, 18)", System.Data.DbType.Decimal);
+    private readonly RelationalTypeMapping _bigDecimal = new DatabricksDecimalTypeMapping();
     private readonly DateOnlyTypeMapping _date = new("DATE", System.Data.DbType.Date);
     private readonly DateTimeTypeMapping _timestampNtz = new("TIMESTAMP_NTZ", System.Data.DbType.DateTime2);
     private readonly DateTimeOffsetTypeMapping _timestamp = new("TIMESTAMP", System.Data.DbType.DateTimeOffset);
@@ -71,6 +73,7 @@ public class DatabricksTypeMappingSource : RelationalTypeMappingSource
             [typeof(float)] = _float,
             [typeof(double)] = _double,
             [typeof(decimal)] = _decimal,
+            [typeof(DatabricksDecimal)] = _bigDecimal,
             [typeof(DateOnly)] = _date,
             [typeof(DateTime)] = _timestampNtz,
             [typeof(DateTimeOffset)] = _timestamp,

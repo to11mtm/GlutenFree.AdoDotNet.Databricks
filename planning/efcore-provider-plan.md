@@ -159,14 +159,31 @@ Standard three-class pattern (SQLite reference):
 `DatabricksTypeMappingSource : RelationalTypeMappingSource`, aligned with the
 existing `DatabricksTypeMap` (ADO.NET) and `DatabricksMappingSchema` (linq2db):
 
-- BIGINT/INT/SMALLINT/TINYINT, DOUBLE/FLOAT, DECIMAL(p,s) (incl. the
-  precision>28 → `DatabricksDecimal`/`SqlDecimal` story — likely *not* mapped
-  by default in EF; document), STRING (no length facets), BOOLEAN, DATE,
-  TIMESTAMP / TIMESTAMP_NTZ (DateTimeOffset/DateTime decision must match the
-  reader), BINARY, and later ARRAY/MAP/STRUCT (out of scope v1; EF 8+
-  primitive collections could map to ARRAY eventually).
-- Literal generation must match the SQL builder rules already proven in
-  linq2db (string escaping, timestamp literals, hex binary).
+- BIGINT/INT/SMALLINT/TINYINT, DOUBLE/FLOAT, DECIMAL(p,s), STRING (no length
+  facets), BOOLEAN, DATE, TIMESTAMP / TIMESTAMP_NTZ (DateTimeOffset/DateTime,
+  matching the reader), BINARY, and later ARRAY/MAP/STRUCT (out of scope v1;
+  EF 8+ primitive collections could map to ARRAY eventually).
+- **Wide decimals map to `DatabricksDecimal`.** Databricks allows
+  `DECIMAL(38, s)`, which exceeds .NET `decimal`'s ~28 significant digits.
+  `DatabricksDecimal` (BigInteger unscaled value + scale) is mapped as a
+  first-class CLR type — *no value converter is involved*, because the ADO.NET
+  layer already round-trips it: `DatabricksDataReader.GetFieldValue<DatabricksDecimal>`
+  reads it whatever the wire representation, and `DatabricksParameter` binds it
+  with an exact `DECIMAL(p, s)` type without narrowing. A converter would be
+  strictly worse: it would have to pick a single provider CLR type, while the
+  reader's type varies with the column's declared precision.
+  The mapping defaults to `DECIMAL(38, 18)` rather than deferring to
+  Databricks' own `DECIMAL(10, 0)` default, which would silently truncate.
+  - Known limitation: `Queryable.Sum`/`Average` have no overloads for a custom
+    struct, so aggregates over a `DatabricksDecimal` property must project to
+    `decimal` first. Comparison and ordering translate normally.
+- `DatabricksModelValidator` warns when a `decimal` property is mapped to a
+  column with precision > 28: such a column only overflows for the rows that
+  actually use the extra digits, so it fails in production rather than in
+  testing.
+- `char` maps to a one-character `STRING` via `CharToStringConverter`.
+- Literal generation follows Spark's rules, not the relational defaults —
+  see §8's live-warehouse notes for the `||` and backslash-escaping traps.
 
 ## 6. Migrations & database creation (deliberately minimal in v1)
 
@@ -308,13 +325,15 @@ Done so far:
 - [x] Integration suites re-run over the Thrift transport
       (`GlutenFree.EntityFrameworkCore.Databricks.Thrift.IntegrationTests`),
       using the established module-initializer + subclass pattern
+- [x] **Arbitrary-precision decimals.** `DatabricksDecimal` is mapped as a
+      first-class CLR type (no value converter needed — see §5), so
+      `DECIMAL(29..38, s)` columns round-trip losslessly. `DatabricksModelValidator`
+      warns when a `decimal` is pointed at a column wider than it can hold.
+      Verified live: 38-digit values materialize, compare, order and bind as
+      parameters server-side.
 
 Remaining:
 
-- [ ] **`decimal` beyond .NET precision** — the ADO.NET layer surfaces
-      `SqlDecimal` above precision 28 and EF has no mapping for it. Decide:
-      document only, reject in the model validator, or add a value converter.
-      (See §9.)
 - [ ] **Curated spec-test subset** — `NorthwindQueryRelationalTestBase`-family
       with a `DatabricksTestStore` (§7). This is the large remaining item.
 - [ ] **`GroupBy` beyond simple aggregates** — `Having`, multiple keys and
@@ -410,8 +429,3 @@ Still open:
   (`ValueGeneratedNever`). Needs a decision in Phase 2: is there a *safe*
   retrieval mechanism worth supporting, or do we validate-and-reject
   store-generated keys with a clear message?
-- **`decimal` beyond .NET precision.** The ADO.NET reader surfaces `SqlDecimal`
-  above precision 28. EF has no `SqlDecimal` mapping; document the limitation,
-  reject it in the model validator, or add a value converter? (Phase 1.)
-- **Should the EF integration suite re-run over Thrift**, doubling warehouse
-  time, or is a smaller transport-specific suite enough? (Phase 1.)

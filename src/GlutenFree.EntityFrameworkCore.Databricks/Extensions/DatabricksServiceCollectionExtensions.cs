@@ -40,6 +40,7 @@ public static class DatabricksServiceCollectionExtensions
             .TryAdd<IRelationalTypeMappingSource, DatabricksTypeMappingSource>()
             .TryAdd<ISqlGenerationHelper, DatabricksSqlGenerationHelper>()
             .TryAdd<IProviderConventionSetBuilder, DatabricksConventionSetBuilder>()
+            .TryAdd<IModelValidator, DatabricksModelValidator>()
             .TryAdd<IRelationalConnection>(p => p.GetRequiredService<IDatabricksRelationalConnection>())
             .TryAdd<IRelationalTransactionFactory, DatabricksTransactionFactory>()
             .TryAdd<IRelationalDatabaseCreator, DatabricksDatabaseCreator>()
