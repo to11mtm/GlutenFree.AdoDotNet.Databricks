@@ -167,8 +167,10 @@ Preview caveats:
 - **`SaveChanges` issues one statement per command.** With the REST transport it is therefore
   not atomic across entities; use the Thrift transport (real transactions) when you need
   atomicity. See [Current Limitations](#current-limitations).
-- **Migrations are not implemented yet.** `EnsureCreated`/`EnsureDeleted` manage the Unity
-  Catalog *schema*; full `Migrate()` support is planned.
+- **Migrations are not supported, by design.** Lakehouse schema is normally managed by
+  Databricks itself (notebooks/jobs, Delta Live Tables, Terraform, Unity Catalog), not by an
+  application ORM — so point the provider at existing tables.
+  `EnsureCreated`/`EnsureDeleted` manage the Unity Catalog *schema* only.
 - Constraints are informational in Delta, so EF's assumption that a primary key is unique is
   the application's responsibility.
 

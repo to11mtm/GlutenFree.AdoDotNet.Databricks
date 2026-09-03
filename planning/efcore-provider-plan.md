@@ -1,8 +1,14 @@
 # EF Core Provider Plan
 
-Status: **In progress.** Phase −1 and Phase 0 are complete; Phase 1 (the query
-provider) is underway. See [§8 Phases and tracking](#8-phases-and-tracking) for
-the current state of each work item.
+Status: **In progress.** Phase −1, Phase 0 and most of Phase 1 are complete;
+**Phase 2 (`SaveChanges`) is the last item before the MVP ships.** See
+[§8 Phases and tracking](#8-phases-and-tracking) for the state of each work item.
+
+**MVP scope:** Phases −1 through 2 — a provider that can query *and* save.
+Migrations (the old Phase 3) are **post-MVP**, and likely out of scope entirely:
+on a lakehouse, schema is normally managed by Databricks (DDL in notebooks/jobs,
+Delta Live Tables, Terraform, Unity Catalog governance) rather than by an
+application's ORM. The package stays `IsPackable=false` until Phase 2 lands.
 
 This document specs out the EF Core provider
 (`GlutenFree.EntityFrameworkCore.Databricks`) built on
@@ -30,7 +36,8 @@ existing pattern (core ADO.NET package + independent add-ons):
 - Reference `Microsoft.EntityFrameworkCore.Relational` with
   `PrivateAssets="none"` so the EF analyzer flows to users (npgsql does this).
 - **`IsPackable=false` until Phase 2 lands** — the package should not ship while
-  `SaveChanges` is incomplete.
+  `SaveChanges` is incomplete. Phase 2 is the gate for flipping it and cutting
+  the first preview.
 
 ## 2. The two hard problems
 
@@ -97,7 +104,8 @@ and `GENERATED ALWAYS AS IDENTITY` columns exist but there is no
 - No database-enforced uniqueness ⇒ document that EF's identity-map assumption
   "PK is unique" is on the app.
 - Concurrency tokens: no rowversion; `UPDATE ... WHERE token = old` works
-  (affected-rows check) — supportable later, not v1.
+  (affected-rows check) — post-MVP, because a `BEGIN ATOMIC` block does not
+  report per-statement rows affected. For the MVP the validator rejects them.
 
 ## 3. Service registrations (`AddEntityFrameworkDatabricks`)
 
@@ -117,7 +125,7 @@ Per `SqliteServiceCollectionExtensions.AddEntityFrameworkSqlite`, using
 | `IRelationalTransactionFactory` | `DatabricksTransactionFactory` | done | reports `SupportsSavepoints => false` |
 | `IProviderConventionSetBuilder` | `DatabricksConventionSetBuilder` | pass-through (Phase 2) | base is abstract; key conventions still to add (§2.2) |
 | `IRelationalDatabaseCreator` | `DatabricksDatabaseCreator` | done | `CREATE`/`DROP SCHEMA`, `information_schema` probes (§6) |
-| `IHistoryRepository` | `DatabricksHistoryRepository` | **not registered** (Phase 3) | until then `Migrate()` fails with a DI error rather than a clear message |
+| `IHistoryRepository` | — | **not registered** | migrations are post-MVP (§6); Phase 2 replaces today's DI error with a clear `NotSupportedException` |
 
 **Customized (defaults exist, but the dialect needs them):**
 
@@ -129,8 +137,8 @@ Per `SqliteServiceCollectionExtensions.AddEntityFrameworkSqlite`, using
 | `IAggregateMethodCallTranslatorProvider` | not needed so far | the `COUNT` narrowing is handled at render time in the query SQL generator, which keeps `DISTINCT`/predicate/selector semantics from the shared translator |
 | `ISqlExpressionFactory` | not needed yet | only if we need typed expression conveniences |
 | `IQueryableMethodTranslatingExpressionVisitorFactory` / `IRelationalSqlTranslatingExpressionVisitorFactory` / `IQueryTranslationPostprocessorFactory` | not needed yet | add as quirks surface (e.g. APPLY→LATERAL rewrites) |
-| `IModelValidator` | Phase 2 | reject unsupported model features early (store-generated keys, rowversion, etc.) |
-| `IMigrationsSqlGenerator` | Phase 3 | supported-DDL subset (§6) |
+| `IModelValidator` | done (extend in Phase 2) | warns on wide `decimal` columns; Phase 2 adds store-generated-key rejection |
+| `IMigrationsSqlGenerator` | post-MVP | schema is managed by Databricks, not EF (§6) |
 | `IRelationalParameterBasedSqlProcessorFactory` | not needed yet | only if parameter inlining/collection-parameter handling needs Databricks behavior |
 
 Everything else comes from `TryAddCoreServices()`. Respect enforced lifetimes
@@ -185,25 +193,38 @@ existing `DatabricksTypeMap` (ADO.NET) and `DatabricksMappingSchema` (linq2db):
 - Literal generation follows Spark's rules, not the relational defaults —
   see §8's live-warehouse notes for the `||` and backslash-escaping traps.
 
-## 6. Migrations & database creation (deliberately minimal in v1)
+## 6. Database creation & migrations
+
+**Migrations are post-MVP, and probably not a goal at all.** On a lakehouse the
+schema is normally owned by Databricks — DDL in notebooks and jobs, Delta Live
+Tables, Terraform, Unity Catalog governance — rather than by an application's
+ORM. EF-driven migrations would fight that model, and Delta's DDL surface does
+not line up with what EF's migration pipeline expects (constraints are
+informational, no `ALTER COLUMN` for arbitrary type changes, DDL cannot run
+inside a transaction). Users should manage schema with Databricks' own tooling
+and point the provider at existing tables.
 
 - **Done:** `DatabricksDatabaseCreator : RelationalDatabaseCreator`. An EF
   "database" is a Unity Catalog *schema* (the catalog is provisioned out of
   band), so `Create`/`Delete` issue `CREATE SCHEMA` / `DROP SCHEMA … CASCADE`,
   and `Exists`/`HasTables` query the catalog-qualified `information_schema`.
-- **Phase 3:** `DatabricksMigrationsSqlGenerator : MigrationsSqlGenerator`
-  implementing the Delta-supported subset — CreateTable (Delta types,
-  `USING DELTA`, comments, informational PK), DropTable, AddColumn,
-  RenameColumn/Table, DropColumn, InsertData/DeleteData/UpdateData — letting the
-  base throw for the rest (no SQLite-style table-rebuild machinery in v1).
-  This is what makes `EnsureCreated` able to create tables.
-- **Phase 3:** `DatabricksHistoryRepository` — a Delta `__EFMigrationsHistory`
-  table in the target schema; workable since it is plain INSERT/DELETE/SELECT.
-  Full `Migrate()` support can therefore come cheaply after `EnsureCreated`.
-  Until it is registered, `Migrate()` fails with a DI resolution error rather
-  than a clear "not supported yet" message.
-- Note: DDL cannot run inside an interactive transaction, so `EnsureCreated` and
-  migrations must not be wrapped in one (§2.1).
+  This is what `EnsureDeleted` and connectivity checks need; it does **not**
+  create tables, because that path runs through the migrations SQL generator.
+- **Post-MVP, if we do it at all:** `DatabricksMigrationsSqlGenerator` covering
+  the Delta-supported DDL subset — CreateTable (Delta types, `USING DELTA`,
+  comments, informational PK), DropTable, AddColumn, RenameColumn/Table,
+  DropColumn, InsertData/DeleteData/UpdateData — letting the base throw for the
+  rest (no SQLite-style table-rebuild machinery). This would also make
+  `EnsureCreated` able to create tables.
+- **Post-MVP:** `DatabricksHistoryRepository` — a Delta `__EFMigrationsHistory`
+  table in the target schema; plain INSERT/DELETE/SELECT, so cheap once the SQL
+  generator exists.
+- Until then, `Migrate()` fails with a DI resolution error because
+  `IHistoryRepository` is unregistered. **Before shipping the MVP** that should
+  become a clear `NotSupportedException` explaining that schema is managed
+  outside EF — see the Phase 2 checklist.
+- Note: DDL cannot run inside an interactive transaction, so any future
+  `EnsureCreated`/migration work must not be wrapped in one (§2.1).
 
 ## 7. Testing
 
@@ -215,10 +236,12 @@ existing `DatabricksTypeMap` (ADO.NET) and `DatabricksMappingSchema` (linq2db):
   the existing `IntegrationConfig`/`IntegrationFact` pattern; covers
   materialization, parameterized predicates, paging, aggregates and string
   translation against a real warehouse.
-- **Phase 1 — re-run over Thrift:** the ADO.NET and linq2db suites re-run
-  themselves over the Thrift transport via a module initializer plus subclasses;
-  the EF suite should do the same.
-- **Phase 1 — EF spec tests:** package
+- **Done — Phase 1 re-run over Thrift:** the EF suites re-run over the Thrift
+  transport via a module initializer plus subclasses
+  (`GlutenFree.EntityFrameworkCore.Databricks.Thrift.IntegrationTests`), matching
+  what the ADO.NET and linq2db suites do. Phase 2's save tests should be written
+  in the same shared-base style so they are re-run for free.
+- **Post-MVP — EF spec tests:** package
   `Microsoft.EntityFrameworkCore.Relational.Specification.Tests` ships abstract
   xunit suites + `RelationalTestStore` infra. Full-suite runs (npgsql-style)
   assume transactions/migrations/Northwind seeding — **start with a curated
@@ -237,6 +260,10 @@ concurrency, so test modules must run sequentially
 
 Legend: **[x]** done · **[~]** partially done · **[ ]** not started.
 Each phase lists its exit criteria; a phase is not "done" until those hold.
+
+**MVP = Phases −1 → 2.** Phase 2 is the gate for flipping `IsPackable` and
+cutting the first preview package. Everything below
+[Post-MVP](#post-mvp) is explicitly out of that first release.
 
 ### Phase −1 — ADO.NET transactions (prerequisite) — **DONE**
 
@@ -332,20 +359,26 @@ Done so far:
       Verified live: 38-digit values materialize, compare, order and bind as
       parameters server-side.
 
-Remaining:
+Remaining **for the MVP**:
 
-- [ ] **Curated spec-test subset** — `NorthwindQueryRelationalTestBase`-family
-      with a `DatabricksTestStore` (§7). This is the large remaining item.
 - [ ] **`GroupBy` beyond simple aggregates** — `Having`, multiple keys and
       grouping by a computed expression are untested against the server.
 - [ ] **Nullability/`??` semantics** — Spark's `NULL` handling in comparisons and
       `COALESCE` should be spot-checked against EF's expectations.
 
-**Exit criteria:** the curated Northwind query suite passes against a live
-warehouse over both transports, and no common LINQ shape silently falls back to
-client evaluation in a `WHERE` clause.
+Deferred to [post-MVP](#post-mvp): the Northwind spec-test subset and the
+`Int128` mapping for zero-scale decimals.
 
-### Phase 2 — `SaveChanges` — **NOT STARTED**
+**Exit criteria (MVP):** the shipped query surface is exercised by the
+provider's own integration suites over both transports, and no common LINQ shape
+silently falls back to client evaluation in a `WHERE` clause. (The Northwind
+spec suite raises that bar and is post-MVP.)
+
+### Phase 2 — `SaveChanges` — **NOT STARTED** (last MVP item)
+
+This is the gate for shipping. Until it lands the package stays
+`IsPackable=false`, because a provider that queries but cannot save is not
+something to hand out for feedback.
 
 - [ ] `BEGIN ATOMIC … END;`-wrapping `ReaderModificationCommandBatch` for the
       REST transport, with rows-affected verification relaxed for wrapped
@@ -353,33 +386,59 @@ client evaluation in a `WHERE` clause.
 - [ ] Keep the current one-statement-per-batch behavior on Thrift, where real
       transactions already provide atomicity
 - [ ] `DatabricksConventionSetBuilder`: default keys to `ValueGenerated.Never`
-      (§2.2)
-- [ ] `DatabricksModelValidator`: reject store-generated keys, rowversion
-      concurrency tokens, and other unsupported model shapes with clear messages
-- [ ] Optimistic-concurrency tokens via `UPDATE … WHERE token = old` +
-      affected-rows check (decide in/out for v1)
+      (§2.2), so the common case does not need explicit configuration
+- [ ] Extend `DatabricksModelValidator`: reject store-generated keys and
+      concurrency tokens with messages that name the alternative
+      (it already warns about wide `decimal` columns)
+- [ ] Replace the `Migrate()` DI failure with a clear `NotSupportedException`
+      pointing at Databricks-managed schema (§6)
 - [ ] Live integration tests: insert/update/delete, multi-entity saves, and the
-      atomicity difference between transports
+      atomicity difference between transports — re-run over Thrift as the query
+      suites already are
+- [ ] README: document the per-transport atomicity guarantees and the
+      client-generated-key requirement (partly written already)
 
 **Exit criteria:** CRUD round-trips against a live warehouse on both transports,
-with the atomicity guarantees documented per transport.
+atomicity guarantees documented per transport, and `IsPackable` flipped to ship
+the preview.
 
-### Phase 3 — `EnsureCreated` and minimal migrations — **NOT STARTED**
+### Post-MVP
 
-- [ ] `DatabricksMigrationsSqlGenerator`: the Delta-supported DDL subset (§6)
-- [ ] `DatabricksHistoryRepository` (also fixes the current DI error when
-      `Migrate()` is called)
-- [ ] Verify `EnsureCreated`/`EnsureDeleted` end to end
-- [ ] Decide whether full `Migrate()` is in scope for v1
+Deliberately deferred so a work-in-progress preview can ship for feedback.
 
-**Exit criteria:** `EnsureCreated` builds the model's tables on a real warehouse.
-
-### Later / out of scope for v1
-
+- [ ] **Curated Northwind spec-test subset** —
+      `NorthwindQueryRelationalTestBase`-family with a `DatabricksTestStore`
+      seeding Northwind via batched INSERTs (§7). This is the large one: it
+      raises confidence in query coverage well beyond our own suites, but it is
+      slow, warehouse-hungry, and not needed to gather feedback on the shape of
+      the provider.
+- [ ] **`Int128` for zero-scale decimals.** `Int128.MaxValue` (~1.70×10³⁸)
+      exceeds `DECIMAL(38, 0)`'s maximum (10³⁸−1), so *every* zero-scale
+      Databricks decimal fits losslessly — it is a natural integral mapping for
+      columns that are conceptually counters or identifiers, and gives real
+      integer arithmetic instead of `DatabricksDecimal`'s decimal semantics.
+      Implementation sketch: a `DatabricksInt128TypeMapping` with store type
+      `DECIMAL(38, 0)` and a `ValueConverter<Int128, DatabricksDecimal>`, so it
+      rides the already-working `DatabricksDecimal` read/write path and inherits
+      its "precision must not exceed 38" guard — no ADO.NET changes needed.
+      Opt-in via the property's CLR type, as EF expects.
+- [ ] **Migrations** (the old Phase 3) — `DatabricksMigrationsSqlGenerator` and
+      `DatabricksHistoryRepository`, which would also give `EnsureCreated` the
+      ability to create tables. **Likely not a goal**: lakehouse schema is
+      normally managed by Databricks rather than an application ORM, and Delta's
+      DDL surface does not match EF's migration model (§6). Revisit only if
+      users ask for it.
 - [ ] Scaffolding (`IDatabaseModelFactory` / `IProviderCodeGenerator` in a
-      Design sub-package)
+      Design sub-package) — reverse-engineering an *existing* Databricks schema
+      is a much better fit for this ecosystem than forward-engineering one, so
+      this is the more valuable half of the tooling story.
 - [ ] `ARRAY`/`MAP`/`STRUCT` and primitive collections → `ARRAY`
 - [ ] MERGE-based upsert optimizations
+- [ ] **Optimistic-concurrency tokens** via `UPDATE … WHERE token = old` plus an
+      affected-rows check. Out of the MVP: it needs per-statement rows-affected,
+      which a `BEGIN ATOMIC` block does not report, so it would only ever work on
+      one transport. Until then the validator rejects concurrency tokens rather
+      than silently ignoring them (§2.2).
 - [ ] Store-generated identity keys
 - [ ] Retrying execution strategy tuned to warehouse cold starts
 
