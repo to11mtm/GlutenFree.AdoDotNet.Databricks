@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\GlutenFree.Databricks.AdoNet.Linq2Db.Thrift\GlutenFree.Databricks.AdoNet.Linq2Db.Thrift.csproj" />
+    <ProjectReference Include="..\GlutenFree.Databricks.AdoNet.Tests\GlutenFree.Databricks.AdoNet.Tests.csproj" />
+  </ItemGroup>
+
+</Project>

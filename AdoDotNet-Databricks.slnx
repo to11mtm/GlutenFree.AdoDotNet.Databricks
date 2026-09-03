@@ -1,8 +1,11 @@
 <Solution>
   <Folder Name="/reqs/">
     <File Path="planning/Adodotnet-databricks-provider.md" />
+    <File Path="planning/efcore-provider-plan.md" />
     <File Path="planning/integration-test-setup.md" />
     <File Path="planning/linq2db-dataprovider.md" />
+    <File Path="planning/linq2db-followups-plan.md" />
+    <File Path="planning/linq2db-thrift-transactions-plan.md" />
     <File Path="planning/more-pr-feedback.md" />
     <File Path="planning/plan.md" />
     <File Path="planning/post-v0.1-backlog.md" />
@@ -10,20 +13,28 @@
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/GlutenFree.Databricks.AdoNet.Linq2Db/GlutenFree.Databricks.AdoNet.Linq2Db.csproj" />
+    <Project Path="src/GlutenFree.Databricks.AdoNet.Linq2Db.Thrift/GlutenFree.Databricks.AdoNet.Linq2Db.Thrift.csproj" />
     <Project Path="src/GlutenFree.Databricks.AdoNet.Thrift/GlutenFree.Databricks.AdoNet.Thrift.csproj" />
     <Project Path="src/GlutenFree.Databricks.AdoNet/GlutenFree.Databricks.AdoNet.csproj" />
+    <Project Path="src/GlutenFree.EntityFrameworkCore.Databricks/GlutenFree.EntityFrameworkCore.Databricks.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/GlutenFree.Databricks.AdoNet.DecimalTests/GlutenFree.Databricks.AdoNet.DecimalTests.csproj" />
     <Project Path="tests/GlutenFree.Databricks.AdoNet.IntegrationTests/GlutenFree.Databricks.AdoNet.IntegrationTests.csproj" />
     <Project Path="tests/GlutenFree.Databricks.AdoNet.Linq2Db.IntegrationTests/GlutenFree.Databricks.AdoNet.Linq2Db.IntegrationTests.csproj" />
     <Project Path="tests/GlutenFree.Databricks.AdoNet.Linq2Db.Tests/GlutenFree.Databricks.AdoNet.Linq2Db.Tests.csproj" />
+    <Project Path="tests/GlutenFree.Databricks.AdoNet.Linq2Db.Thrift.IntegrationTests/GlutenFree.Databricks.AdoNet.Linq2Db.Thrift.IntegrationTests.csproj" />
+    <Project Path="tests/GlutenFree.Databricks.AdoNet.Linq2Db.Thrift.Tests/GlutenFree.Databricks.AdoNet.Linq2Db.Thrift.Tests.csproj" />
     <Project Path="tests/GlutenFree.Databricks.AdoNet.Tests/GlutenFree.Databricks.AdoNet.Tests.csproj" />
     <Project Path="tests/GlutenFree.Databricks.AdoNet.Thrift.IntegrationTests/GlutenFree.Databricks.AdoNet.Thrift.IntegrationTests.csproj" />
     <Project Path="tests/GlutenFree.Databricks.AdoNet.Thrift.Tests/GlutenFree.Databricks.AdoNet.Thrift.Tests.csproj" />
+    <Project Path="tests/GlutenFree.EntityFrameworkCore.Databricks.Tests/GlutenFree.EntityFrameworkCore.Databricks.Tests.csproj" />
+    <Project Path="tests/GlutenFree.EntityFrameworkCore.Databricks.IntegrationTests/GlutenFree.EntityFrameworkCore.Databricks.IntegrationTests.csproj" />
+    <Project Path="tests/GlutenFree.EntityFrameworkCore.Databricks.Thrift.IntegrationTests/GlutenFree.EntityFrameworkCore.Databricks.Thrift.IntegrationTests.csproj" />
   </Folder>
   <Folder Name="/_/">
     <File Path=".editorconfig" />
+    <File Path=".github/workflows/release.yml" />
     <File Path="Directory.Build.props" />
     <File Path="LICENSE" />
     <File Path="README.kawaii.md" />

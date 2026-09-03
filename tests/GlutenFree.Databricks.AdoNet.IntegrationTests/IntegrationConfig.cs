@@ -137,7 +137,10 @@ public static class IntegrationConfig
 /// <summary>A fact that is skipped unless the DATABRICKS_* environment variables are set.</summary>
 public sealed class IntegrationFactAttribute : FactAttribute
 {
-    public IntegrationFactAttribute()
+    public IntegrationFactAttribute(
+        [System.Runtime.CompilerServices.CallerFilePath] string? sourceFilePath = null,
+        [System.Runtime.CompilerServices.CallerLineNumber] int sourceLineNumber = -1)
+        : base(sourceFilePath, sourceLineNumber)
     {
         if (!IntegrationConfig.IsConfigured)
         {

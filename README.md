@@ -10,7 +10,9 @@ server-side sessions. No ODBC Jank needed, pure .NET 8, async-first, injection-s
 |---|---|
 | `GlutenFree.Databricks.AdoNet` | Core ADO.NET provider (`DbConnection`/`DbCommand`/`DbDataReader`) |
 | `GlutenFree.Databricks.AdoNet.Linq2Db` | [linq2db](https://github.com/linq2db/linq2db) data provider |
+| `GlutenFree.Databricks.AdoNet.Linq2Db.Thrift` | linq2db provider flavor over the Thrift transport — enables interactive transactions |
 | `GlutenFree.Databricks.AdoNet.Thrift` | Opt-in Thrift transport (real sessions), built on the [Apache Arrow ADBC Databricks driver](https://www.nuget.org/packages/Apache.Arrow.Adbc.Drivers.Databricks) |
+| `GlutenFree.EntityFrameworkCore.Databricks` | Entity Framework Core 10 provider (preview — query pipeline; see [EF Core](#entity-framework-core-preview)) |
 
 ## Features
 
@@ -31,6 +33,8 @@ server-side sessions. No ODBC Jank needed, pure .NET 8, async-first, injection-s
 - **Opt-in Thrift transport** (`GlutenFree.Databricks.AdoNet.Thrift`): real server-side
   sessions (`USE`/session state persists across commands) — see
   [Thrift transport](#thrift-transport-opt-in)
+- **EF Core 10 provider** (preview): LINQ queries with Databricks-native SQL generation —
+  see [Entity Framework Core](#entity-framework-core-preview)
 
 ## Async vs. sync
 
@@ -114,6 +118,69 @@ db.GetTable<Order>()
     .Merge();
 ```
 
+## Entity Framework Core (preview)
+
+`GlutenFree.EntityFrameworkCore.Databricks` is an EF Core **10** provider (targets `net10.0`;
+the package major tracks the EF Core major). It is a preview: querying and `SaveChanges` both
+work, and migrations are deliberately out of scope (see below).
+
+```csharp
+using Microsoft.EntityFrameworkCore;
+
+public class SalesContext(DbContextOptions<SalesContext> options) : DbContext(options)
+{
+    public DbSet<Order> Orders => Set<Order>();
+}
+
+var options = new DbContextOptionsBuilder<SalesContext>()
+    .UseDatabricks(connectionString, o => o.UseCatalog("main").UseSchema("sales"))
+    .Options;
+
+using var context = new SalesContext(options);
+
+var bigOrders = await context.Orders
+    .Where(o => o.Amount > 100m && o.Customer.StartsWith("acme"))
+    .OrderByDescending(o => o.Amount)
+    .Take(10)
+    .ToListAsync();
+```
+
+`UseDatabricks` accepts a connection string or an existing `DatabricksConnection` (so the
+Thrift transport can be opted into per context). `UseCatalog`/`UseSchema` override the
+connection string's `Catalog`/`Schema` keywords.
+
+What the provider generates is Databricks-native: backtick-quoted identifiers, `:name`
+parameter markers, `LIMIT`/`OFFSET` paging (`LIMIT ALL` for an unbounded `Skip`), and
+Databricks functions for the common `string`/date/`Math` translations
+(`startswith`, `contains`, `length`, `year`, `upper`, …).
+
+Preview caveats:
+
+- **Keys must be client-generated.** Databricks cannot report store-generated values back to
+  EF, so every property defaults to `ValueGeneratedNever()` and the provider refuses a model
+  that configures store generation or a concurrency token, rather than failing silently at
+  runtime.
+- **Wide `DECIMAL` columns need `DatabricksDecimal`.** Databricks allows `DECIMAL(38, s)`,
+  which is more precision than .NET's `decimal` can hold. Declare such properties as
+  `DatabricksDecimal` for a lossless mapping — the provider warns at model-validation time if
+  a `decimal` is pointed at a column wider than precision 28. (Note that `Sum`/`Average` have
+  no LINQ overloads for a custom struct, so aggregate over a projected `decimal` instead.)
+- **`SaveChanges` is atomic, but the mechanism differs per transport.**
+  Over Thrift, EF opens a real transaction (`BEGIN TRANSACTION` … `COMMIT`). Over the stateless
+  REST transport it cannot, so the provider submits the whole batch as one
+  `BEGIN ATOMIC … END;` compound statement instead — one round trip, all-or-nothing.
+  Either way the target tables must be Unity Catalog managed tables with
+  `delta.feature.catalogManaged` enabled; without it Databricks refuses the write. On ordinary
+  Delta tables set `context.Database.AutoTransactionBehavior = AutoTransactionBehavior.Never`,
+  which sends each statement on its own and gives up atomicity.
+  See [Current Limitations](#current-limitations).
+- **Migrations are not supported, by design.** Lakehouse schema is normally managed by
+  Databricks itself (notebooks/jobs, Delta Live Tables, Terraform, Unity Catalog), not by an
+  application ORM — so point the provider at existing tables.
+  `EnsureCreated`/`EnsureDeleted` manage the Unity Catalog *schema* only.
+- Constraints are informational in Delta, so EF's assumption that a primary key is unique is
+  the application's responsibility.
+
 ## Thrift transport (opt-in)
 
 The default REST transport is stateless: each statement is standalone. The
@@ -157,6 +224,19 @@ What changes with Thrift:
   names and type names.
 - **Result streaming** (CloudFetch, LZ4) is handled inside the ADBC driver and surfaces
   through the same `DatabricksDataReader`.
+- **Interactive transactions** — `BeginTransaction()` works (transactions are session
+  state; see [Current Limitations](#current-limitations) for Databricks' requirements).
+  For linq2db, use the `GlutenFree.Databricks.AdoNet.Linq2Db.Thrift` package, whose
+  provider flavor declares transaction support and wires up the Thrift transport for you:
+
+  ```csharp
+  using GlutenFree.Databricks.AdoNet.Linq2Db.Thrift;
+
+  using var db = DatabricksThriftTools.CreateDataConnection(connectionString);
+  using var tx = db.BeginTransaction();
+  db.Insert(new Order { /* ... */ });
+  tx.Commit(); // or tx.Rollback(); disposing without committing rolls back
+  ```
 - The add-on carries heavier transitive dependencies (ApacheThrift and friends) — that's
   why it ships as a separate opt-in package rather than in the core provider.
 
@@ -210,9 +290,25 @@ integration projects stay REST-only and have no dependency on the Thrift add-on.
   report issues and we'll prepare test branches/draft PRs for you to verify against your
   cluster; PRs from users with cluster access are welcome, and we'll test what we can
   (warehouse paths, CI) on your branch.
-- **No multi-statement transactions** — Databricks SQL doesn't support them;
-  `BeginTransaction` throws `NotSupportedException`. (The linq2db provider declares
-  `TransactionsSupported=false` so linq2db never attempts one.)
+- **Transactions require the Thrift transport** — Databricks supports interactive
+  transactions (`BEGIN TRANSACTION` … `COMMIT`/`ROLLBACK`) as *session* state, so
+  `BeginTransaction()` works only on the session-based
+  [Thrift transport](#thrift-transport-opt-in); on the stateless REST transport it throws
+  `NotSupportedException`. You can also submit a self-contained
+  `BEGIN ATOMIC … END;` block as a single statement for an atomic multi-statement unit
+  of work — on the REST transport with or without parameters, but on Thrift only without,
+  since Thrift binds named parameters through `EXECUTE IMMEDIATE`, which rejects SQL scripts.
+  Databricks additionally requires every table written to in a transaction to be
+  a Unity Catalog managed Delta/Iceberg table with catalog commits enabled, forbids
+  DDL/metadata operations inside an interactive transaction, allows one transaction at a
+  time per connection, and has no savepoints. Conflicts are detected optimistically at
+  commit, so build retry logic. See the
+  [Databricks transactions docs](https://docs.databricks.com/aws/en/transactions/).
+  (The linq2db provider in `GlutenFree.Databricks.AdoNet.Linq2Db` declares
+  `TransactionsSupported=false`, since its data provider is a singleton shared by both
+  transports; for linq2db transactions use the `GlutenFree.Databricks.AdoNet.Linq2Db.Thrift`
+  package's `DatabricksThriftTools`, whose provider flavor runs over the Thrift transport
+  and declares `TransactionsSupported=true`.)
 - **Input parameters only** — no output/return parameters, no stored procedures.
 - **`BINARY` parameters unsupported** by the Statement Execution API — pass hex/base64
   strings and decode in SQL.
@@ -238,9 +334,14 @@ see [planning/integration-test-setup.md](planning/integration-test-setup.md).
   self-skip without credentials), and uploads pack artifacts.
 - **Integration** (`.github/workflows/integration.yml`): manual dispatch; requires
   `DATABRICKS_HOST` / `DATABRICKS_TOKEN` / `DATABRICKS_WAREHOUSE_ID` repository secrets.
-- **Release** (`.github/workflows/release.yml`): push a `v*` tag (e.g. `v0.1.0`) to build,
-  test, pack with that version, push both packages to NuGet (requires the `NUGET_API_KEY`
-  secret), and create a GitHub release. Packages include SourceLink, symbol packages
+- **Release** (`.github/workflows/release.yml`): push a `v*` tag (e.g. `v0.3.0`) to build,
+  test, pack and push every package, then create a GitHub release. The EF Core provider's
+  major tracks the EF Core major, so it is versioned `10.<repo version>` — `v0.3.0` publishes
+  `GlutenFree.EntityFrameworkCore.Databricks` 10.0.3.0, depending on the 0.3.0 ADO.NET package
+  from the same tag. An `efcore-v*` tag (e.g. `efcore-v10.1.0`) releases just the EF provider at
+  exactly that version, for when a new EF Core minor lands on its own.
+  Publishing uses NuGet Trusted Publishing (OIDC), which needs the `NUGET_USER` secret and a
+  `release` environment. Packages include SourceLink, symbol packages
   (`.snupkg`), XML docs, and this README; the repository URL is inferred from the git
   remote at pack time, so it stays correct after the repo moves to its organization.
 

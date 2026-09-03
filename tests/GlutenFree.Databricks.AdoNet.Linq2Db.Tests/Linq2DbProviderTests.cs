@@ -152,13 +152,15 @@ public class Linq2DbProviderTests
     }
 
     [Fact]
-    public void BeginTransaction_is_noop_guarded_by_provider()
+    public void BeginTransaction_is_noop_guarded_by_rest_provider_flavor()
     {
         var (db, transport) = CreateDb();
         using var _ = db;
 
-        // TransactionsSupported=false: linq2db skips the underlying BeginTransaction call
-        // (which would throw NotSupportedException on DatabricksConnection).
+        // The default (REST) flavor declares TransactionsSupported=false: linq2db skips the
+        // underlying BeginTransaction call (which would throw NotSupportedException on a
+        // DatabricksConnection over the stateless REST transport). For real transactions use
+        // the GlutenFree.Databricks.AdoNet.Linq2Db.Thrift package's provider flavor.
         using var tx = db.BeginTransaction();
 
         Assert.NotNull(tx);

@@ -78,7 +78,7 @@ public class Linq2DbSqlBitsIntegrationTests : IAsyncLifetime
     private IQueryable<TypeRow> Types(DataConnection db)
         => TypesTable(db).Where(t => t.RunId == _runId);
 
-    public async Task InitializeAsync()
+    public async ValueTask InitializeAsync()
     {
         if (!IntegrationConfig.IsConfigured)
         {
@@ -106,7 +106,7 @@ public class Linq2DbSqlBitsIntegrationTests : IAsyncLifetime
             $"('{_runId}', 10, 1, 5.00), ('{_runId}', 11, 1, 15.00), ('{_runId}', 30, 99, 7.50)");
     }
 
-    public async Task DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
         if (_connection is null)
         {

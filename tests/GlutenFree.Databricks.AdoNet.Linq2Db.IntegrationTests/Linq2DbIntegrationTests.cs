@@ -39,7 +39,7 @@ public class Linq2DbIntegrationTests : IAsyncLifetime
     private IQueryable<Product> GetProducts(LinqToDB.Data.DataConnection db)
         => ProductsTable(db).Where(p => p.RunId == _runId);
 
-    public async Task InitializeAsync()
+    public async ValueTask InitializeAsync()
     {
         if (!IntegrationConfig.IsConfigured)
         {
@@ -59,7 +59,7 @@ public class Linq2DbIntegrationTests : IAsyncLifetime
             $"('{_runId}', 1, 'widget', 9.99), ('{_runId}', 2, 'gadget', 24.50), ('{_runId}', 3, 'gizmo', 100.00)");
     }
 
-    public async Task DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
         if (_connection is null)
         {

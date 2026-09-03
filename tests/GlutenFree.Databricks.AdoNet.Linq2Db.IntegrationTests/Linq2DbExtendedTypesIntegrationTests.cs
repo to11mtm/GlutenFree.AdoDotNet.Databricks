@@ -46,7 +46,7 @@ public class Linq2DbExtendedTypesIntegrationTests : IAsyncLifetime
     private IQueryable<ExtRow> Rows(DataConnection db)
         => RowsTable(db).Where(r => r.RunId == _runId);
 
-    public async Task InitializeAsync()
+    public async ValueTask InitializeAsync()
     {
         if (!IntegrationConfig.IsConfigured)
         {
@@ -69,7 +69,7 @@ public class Linq2DbExtendedTypesIntegrationTests : IAsyncLifetime
             """parse_json('{"name": "alice", "tags": [1, 2]}'))""");
     }
 
-    public async Task DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
         if (_connection is null)
         {

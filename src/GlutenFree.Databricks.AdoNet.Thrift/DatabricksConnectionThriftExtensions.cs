@@ -25,6 +25,7 @@ public static class DatabricksConnectionThriftExtensions
         ArgumentNullException.ThrowIfNull(connection);
 
         connection.TransportFactory = conn => CreateTransport(conn, driverOptions);
+        connection.DeclaredTransportSupportsTransactions = true;
         return connection;
     }
 

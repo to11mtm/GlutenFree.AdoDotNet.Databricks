@@ -25,6 +25,7 @@ jobs:
           dotnet-version: |
             8.0.x
             9.0.x
+            10.0.x
 
       - name: Verify secrets are configured
         run: |
@@ -38,4 +39,7 @@ jobs:
           fi
 
       - name: Run integration tests
-        run: dotnet test --configuration Release --filter "Category=Integration"
+        # --max-parallel-test-modules 1: the integration suites share fixed Delta tables in
+        # one warehouse, and Delta uses optimistic concurrency — running the assemblies in
+        # parallel makes concurrent DELETE/INSERT on the same table conflict.
+        run: dotnet test --configuration Release --filter-trait "Category=Integration" --max-parallel-test-modules 1

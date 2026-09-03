@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- EF Core 10 requires net10.0; overrides the repo-wide net8.0. -->
+    <TargetFramework>net10.0</TargetFramework>
+    <PackageId>GlutenFree.EntityFrameworkCore.Databricks</PackageId>
+    <Description>Entity Framework Core provider for Databricks SQL warehouses, built on GlutenFree.Databricks.AdoNet.</Description>
+    <PackageTags>databricks;entity-framework-core;efcore;sql;data;provider</PackageTags>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- The package major tracks the EF Core major; everything after it tracks the repo
+         release, so a `v0.3.0` tag publishes 10.0.3.0. `EfCoreProviderVersion` (set by an
+         `efcore-v*` tag) overrides that for a standalone provider release — e.g. when a new
+         EF Core minor lands and nothing else in the repo changed. -->
+    <EfCoreProviderMajor>10</EfCoreProviderMajor>
+    <VersionPrefix>$(EfCoreProviderMajor).$(VersionPrefix)</VersionPrefix>
+    <Version Condition="'$(ReleaseVersion)' != ''">$(EfCoreProviderMajor).$(ReleaseVersion)</Version>
+    <Version Condition="'$(EfCoreProviderVersion)' != ''">$(EfCoreProviderVersion)</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="GlutenFree.EntityFrameworkCore.Databricks.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Root EF namespace, mirroring EF Core's own provider projects: DbLoggerCategory and
+         friends are referenced pervasively by provider services. -->
+    <Using Include="Microsoft.EntityFrameworkCore" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\GlutenFree.Databricks.AdoNet\GlutenFree.Databricks.AdoNet.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- PrivateAssets="none" so the EF Core analyzer flows to consumers. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.11" PrivateAssets="none" />
+  </ItemGroup>
+
+</Project>

@@ -76,7 +76,34 @@ Reviewed arrow-dotnet feature matrix vs Databricks output; coverage is sufficien
 
 ## 6. Transactions
 
-- Databricks SQL has **no multi-statement transactions**. `BeginTransaction` throws `NotSupportedException` with a clear message (documented). Revisit if/when Databricks adds support.
+**Superseded (2026-09):** Databricks now supports multi-statement transactions
+([docs](https://docs.databricks.com/aws/en/transactions/)) on Unity Catalog
+managed Delta/Iceberg tables with [catalog commits](https://docs.databricks.com/aws/en/tables/features/catalog-commits)
+enabled. Two modes:
+
+| Mode | Syntax | Compute | Our transports |
+|---|---|---|---|
+| Non-interactive | `BEGIN ATOMIC … END;` (one submitted statement; auto commit/rollback) | Any SQL warehouse, serverless, or DBR 18.0+ cluster | Works on **both** — it is just statement text, and the docs show it over the Statement Execution API |
+| Interactive | `BEGIN TRANSACTION; … COMMIT;`/`ROLLBACK;` | SQL warehouses only; requires a stateful session (`autoCommit=false`) | **Thrift only** — REST is stateless, so it cannot hold transaction state |
+
+Provider behavior:
+
+- `DatabricksConnection.BeginTransaction()` returns a real `DatabricksTransaction`
+  when the transport maintains a session (`IDatabricksTransport.SupportsTransactions`,
+  true for `ThriftStatementTransport`). It issues `BEGIN TRANSACTION` on the
+  session; `Commit`/`Rollback` issue `COMMIT`/`ROLLBACK`; disposing an
+  uncompleted transaction rolls back.
+- On the stateless REST transport `BeginTransaction` still throws
+  `NotSupportedException`, with a message pointing at the Thrift transport or at
+  `BEGIN ATOMIC … END;` as a single statement.
+- Savepoints are not supported in either mode.
+- Isolation: Databricks gives snapshot isolation (repeatable reads within the
+  transaction) with optimistic concurrency; conflicts surface at commit —
+  interactive transactions detect conflicts at table level, `BEGIN ATOMIC` at
+  row level. Callers should build retry logic.
+- Known limitations to document: metadata/DDL operations are unsupported inside
+  interactive transactions; only one transaction at a time per connection;
+  target tables must be UC-managed with catalog commits enabled.
 
 ## 7. Pooling
 
@@ -111,7 +138,8 @@ Reviewed arrow-dotnet feature matrix vs Databricks output; coverage is sufficien
 ## Non-goals (v1)
 
 - Thrift/HiveServer2 transport, all-purpose cluster support
-- Multi-statement transactions
+- Multi-statement transactions (v1 non-goal; see §6 — Databricks added support
+  in 2026 and the provider implements it on the Thrift transport)
 - OAuth U2M (interactive browser) flow
 - EF Core provider (separate project later). A **linq2db provider** (`Databricks.AdoNet.Linq2Db`)
   **is** in scope for the initial release — see `planning/linq2db-dataprovider.md` for reference

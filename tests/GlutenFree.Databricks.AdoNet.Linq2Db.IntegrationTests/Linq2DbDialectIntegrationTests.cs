@@ -35,7 +35,7 @@ public class Linq2DbDialectIntegrationTests : IAsyncLifetime
     private IQueryable<Sale> GetSales(DataConnection db)
         => SalesTable(db).Where(s => s.RunId == _runId);
 
-    public async Task InitializeAsync()
+    public async ValueTask InitializeAsync()
     {
         if (!IntegrationConfig.IsConfigured)
         {
@@ -56,7 +56,7 @@ public class Linq2DbDialectIntegrationTests : IAsyncLifetime
             $"('{_runId}', 3, 'west', 20.00), ('{_runId}', 4, 'west', 5.00)");
     }
 
-    public async Task DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
         if (_connection is null)
         {
