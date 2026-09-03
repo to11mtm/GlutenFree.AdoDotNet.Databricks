@@ -108,6 +108,20 @@ public class QuerySqlGenerationTests
                 .Select(g => new { g.Key, Count = g.Count() })));
 
     [Fact]
+    public void Sum_over_an_int_column_is_cast_to_int()
+        // Databricks' SUM widens any integral input to BIGINT, while Queryable.Sum is typed
+        // after its selector.
+        => AssertSql(
+            """
+            SELECT `o`.`OrderId` AS `Key`, COALESCE(CAST(SUM(`o`.`Quantity`) AS INT), 0) AS `Total`
+            FROM `order_lines` AS `o`
+            GROUP BY `o`.`OrderId`
+            """,
+            Sql(c => c.OrderLines
+                .GroupBy(l => l.OrderId)
+                .Select(g => new { g.Key, Total = g.Sum(l => l.Quantity) })));
+
+    [Fact]
     public void Parameters_use_colon_markers()
     {
         var customer = "acme";

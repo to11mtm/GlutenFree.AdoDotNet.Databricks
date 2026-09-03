@@ -24,13 +24,19 @@ public class Widget
     /// hold, so it is mapped to the arbitrary-precision type.
     /// </summary>
     public DatabricksDecimal BigValue { get; set; }
+
+    /// <summary>Nullable, so the suites can exercise Spark's NULL semantics.</summary>
+    public string? Description { get; set; }
+
+    /// <summary>Nullable, so the suites can exercise <c>COALESCE</c> and nullable aggregates.</summary>
+    public int? Rating { get; set; }
 }
 
 /// <summary>Context mapping <see cref="Widget" /> onto the shared integration test table.</summary>
 public class WidgetContext(DbContextOptions<WidgetContext> options) : DbContext(options)
 {
     // Bump the version suffix rather than altering the table if its shape has to change.
-    public const string Schema = "adodotnet_ef_v3";
+    public const string Schema = "adodotnet_ef_v5";
     public const string Table = "ef_widgets";
 
     public DbSet<Widget> Widgets => Set<Widget>();
@@ -48,6 +54,8 @@ public class WidgetContext(DbContextOptions<WidgetContext> options) : DbContext(
             b.Property(w => w.Active).HasColumnName("active");
             b.Property(w => w.CreatedAt).HasColumnName("created_at");
             b.Property(w => w.BigValue).HasColumnName("big_value").HasColumnType("DECIMAL(38, 10)");
+            b.Property(w => w.Description).HasColumnName("description");
+            b.Property(w => w.Rating).HasColumnName("rating");
         });
 }
 
@@ -88,6 +96,12 @@ public abstract class WidgetFixture : IAsyncLifetime
     protected IQueryable<Widget> Widgets(WidgetContext context)
         => context.Widgets.Where(w => w.RunId == _runId);
 
+    /// <summary>
+    /// The tag stamped on every row this run owns. Tests that insert rows must set it, so
+    /// teardown can find and delete them.
+    /// </summary>
+    protected string RunId => _runId;
+
     public async ValueTask InitializeAsync()
     {
         if (!IntegrationConfig.IsConfigured)
@@ -100,6 +114,8 @@ public abstract class WidgetFixture : IAsyncLifetime
         await IntegrationConfig.EnsureVersionedSchemaAsync(
             _connection,
             WidgetContext.Schema,
+            // catalogManaged is what makes the table writable inside a transaction, which the
+            // provider uses to make a multi-entity SaveChanges atomic.
             $"""
              CREATE TABLE IF NOT EXISTS {QualifiedTable} (
                  run_id STRING,
@@ -108,17 +124,22 @@ public abstract class WidgetFixture : IAsyncLifetime
                  price DECIMAL(18, 2),
                  active BOOLEAN,
                  created_at TIMESTAMP_NTZ,
-                 big_value DECIMAL(38, 10)
+                 big_value DECIMAL(38, 10),
+                 description STRING,
+                 rating INT
              ) USING DELTA
+             TBLPROPERTIES ('delta.feature.catalogManaged' = 'supported')
              """);
 
         await using var seed = _connection.CreateCommand();
         seed.CommandText =
             $"INSERT INTO {QualifiedTable} VALUES "
             // big_value carries 38 significant digits — more than a .NET decimal can hold.
-            + "(:run_id, 1, 'alpha', 10.50, true,  TIMESTAMP_NTZ'2026-03-01 08:00:00', 1234567890123456789012345678.1234567890), "
-            + "(:run_id, 2, 'beta',  20.00, false, TIMESTAMP_NTZ'2026-03-01 09:00:00', 0.0000000001), "
-            + "(:run_id, 3, 'gamma', 30.25, true,  TIMESTAMP_NTZ'2026-03-01 10:00:00', -9999999999999999999999999999.9999999999)";
+            // description/rating are NULL on some rows so the null-semantics suite has something
+            // to work with.
+            + "(:run_id, 1, 'alpha', 10.50, true,  TIMESTAMP_NTZ'2026-03-01 08:00:00', 1234567890123456789012345678.1234567890, 'first', 5), "
+            + "(:run_id, 2, 'beta',  20.00, false, TIMESTAMP_NTZ'2026-03-01 09:00:00', 0.0000000001, NULL, NULL), "
+            + "(:run_id, 3, 'gamma', 30.25, true,  TIMESTAMP_NTZ'2026-03-01 10:00:00', -9999999999999999999999999999.9999999999, 'third', NULL)";
         seed.Parameters.AddWithValue("run_id", _runId);
         await seed.ExecuteNonQueryAsync();
     }

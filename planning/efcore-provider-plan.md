@@ -68,21 +68,44 @@ REST is stateless and keeps throwing `NotSupportedException`.
   Register an `IRelationalTransactionFactory` only to report
   `SupportsSavepoints => false` (Databricks has no savepoints), which makes
   `BatchExecutor` skip the savepoint path.
-- **REST:** the connection can't begin a transaction, so make each
-  `ModificationCommandBatch` atomic instead — our `ReaderModificationCommandBatch`
-  subclass wraps its statements in `BEGIN ATOMIC … END;`. This maps naturally
-  onto EF's batching model (a batch already *is* an ordered statement list).
-  Caveats to handle in the batch's `Consume`: an ATOMIC block does not report
-  per-statement rows-affected, so rows-affected verification and store-generated
-  value propagation must be relaxed for wrapped batches (see §2.2 — we don't
-  support store-generated values in v1 anyway).
+- **REST:** the connection can't begin a transaction, so each
+  `ModificationCommandBatch` is made atomic instead:
+  `DatabricksAtomicModificationCommandBatch` wraps its statements in
+  `BEGIN ATOMIC … END;` and calls `SetRequiresTransaction(false)` so
+  `BatchExecutor` does not try to open one. This maps naturally onto EF's batching
+  model (a batch already *is* an ordered statement list). An ATOMIC block reports
+  no per-statement rows-affected, so nothing that depends on that number is
+  supported — concurrency tokens are rejected at model validation, and there are
+  no store-generated values to propagate anyway (§2.2).
   Multi-*batch* saves are still non-atomic; document that, and document
   `AutoTransactionBehavior.Never` plus "use the Thrift transport for real
   transactions" as the escape hatches.
+- **Choosing between them** happens in
+  `DatabricksModificationCommandBatchFactory`, and it has to happen *before* the
+  connection is opened (EF completes the first batch before `BatchExecutor` opens
+  anything). `DatabricksConnection.SupportsTransactions` therefore answers on a
+  closed connection: the Thrift extension declares the capability when it installs
+  its transport factory. Wrapping is used only when the transport cannot begin a
+  transaction, there is no caller-started transaction, and
+  `AutoTransactionBehavior` is not `Never`.
 - **No stub transactions.** The earlier InMemory-style
   warn-and-stub design is dropped; where we genuinely cannot provide atomicity
   (REST + explicit `Database.BeginTransaction()`), we surface the ADO.NET
   `NotSupportedException` rather than silently pretending.
+
+Two hard constraints found by running this against a warehouse:
+
+- **`BEGIN ATOMIC` cannot be used over Thrift at all.** The Thrift transport
+  emulates named parameters with `EXECUTE IMMEDIATE '<sql>' USING …`, and
+  Databricks rejects a SQL script there with `SQL_SCRIPT_IN_EXECUTE_IMMEDIATE`.
+  That settles the choice above: Thrift *must* use a real transaction, which is
+  the better option anyway.
+- **Any transactional write needs `delta.feature.catalogManaged`.** Without it
+  the block fails with
+  `TRANSACTION_NOT_SUPPORTED.WRITE_NON_CATALOG_MANAGED_TABLE`. That applies to
+  the compound statement as much as to `BEGIN TRANSACTION`, so
+  `AutoTransactionBehavior.Never` is the documented escape hatch for ordinary
+  Delta tables.
 
 Databricks-specific behavior to document either way: snapshot isolation with
 optimistic concurrency (conflicts surface at commit → apps need retry logic);
@@ -304,15 +327,16 @@ In the core `GlutenFree.Databricks.AdoNet` package, not the EF provider.
 **Exit criteria (met):** `ToQueryString()` and `ToListAsync()` work against a
 live warehouse.
 
-### Phase 1 — query provider — **IN PROGRESS**
+### Phase 1 — query provider — **COMPLETE**
 
 The read-only story, which is already the bulk of the value for a lakehouse.
 
 Done so far:
 
 - [x] `LIMIT ALL` for an unbounded `Skip` (a `BIGINT` bound is rejected)
-- [x] `CAST(COUNT(...) AS INT)` narrowing, done at render time so `DISTINCT`,
-      predicates and selectors keep the shared translator's semantics
+- [x] `CAST(COUNT(...) AS INT)` / `CAST(SUM(...) AS INT|FLOAT)` narrowing, done at
+      render time so `DISTINCT`, predicates and selectors keep the shared
+      translator's semantics
 - [x] **String concatenation → `||`.** Spark's `+` is arithmetic only: applied to
       strings it coerces operands to numbers and yields `NULL`, so EF's default
       `+` was silently producing wrong results.
@@ -359,12 +383,18 @@ Done so far:
       Verified live: 38-digit values materialize, compare, order and bind as
       parameters server-side.
 
-Remaining **for the MVP**:
+Remaining **for the MVP**: none.
 
-- [ ] **`GroupBy` beyond simple aggregates** — `Having`, multiple keys and
-      grouping by a computed expression are untested against the server.
-- [ ] **Nullability/`??` semantics** — Spark's `NULL` handling in comparisons and
-      `COALESCE` should be spot-checked against EF's expectations.
+- [x] **`GroupBy` beyond simple aggregates** — composite keys, computed keys,
+      `HAVING` (on `COUNT` and on `SUM`), nullable keys (all `NULL`s land in one
+      group), ordering by an aggregate, filters before *and* after grouping, and
+      `Distinct().Count()` inside a group, all verified live
+      (`EfCoreGroupingIntegrationTests`).
+- [x] **Nullability/`??` semantics** — `IS NULL`/`IS NOT NULL`, null-valued
+      parameters, EF's widened inequality, `COALESCE` in projections and
+      predicates, `IsNullOrEmpty`, `HasValue`, aggregates over nullable columns
+      and NULL sort order, all verified live
+      (`EfCoreNullSemanticsIntegrationTests`).
 
 Deferred to [post-MVP](#post-mvp): the Northwind spec-test subset and the
 `Int128` mapping for zero-scale decimals.
@@ -374,33 +404,39 @@ provider's own integration suites over both transports, and no common LINQ shape
 silently falls back to client evaluation in a `WHERE` clause. (The Northwind
 spec suite raises that bar and is post-MVP.)
 
-### Phase 2 — `SaveChanges` — **NOT STARTED** (last MVP item)
+### Phase 2 — `SaveChanges` — **COMPLETE**
 
-This is the gate for shipping. Until it lands the package stays
-`IsPackable=false`, because a provider that queries but cannot save is not
+This was the gate for shipping: a provider that queries but cannot save is not
 something to hand out for feedback.
 
-- [ ] `BEGIN ATOMIC … END;`-wrapping `ReaderModificationCommandBatch` for the
-      REST transport, with rows-affected verification relaxed for wrapped
+- [x] `BEGIN ATOMIC … END;`-wrapping `DatabricksAtomicModificationCommandBatch`
+      for the REST transport, with rows-affected verification dropped for wrapped
       batches (§2.1)
-- [ ] Keep the current one-statement-per-batch behavior on Thrift, where real
-      transactions already provide atomicity
-- [ ] `DatabricksConventionSetBuilder`: default keys to `ValueGenerated.Never`
-      (§2.2), so the common case does not need explicit configuration
-- [ ] Extend `DatabricksModelValidator`: reject store-generated keys and
+- [x] One statement per batch on Thrift, inside a real transaction opened by
+      `BatchExecutor` — both because that is closer to what EF expects and
+      because `EXECUTE IMMEDIATE` rejects a compound statement (§2.1)
+- [x] `DatabricksValueGenerationConvention`: every property defaults to
+      `ValueGenerated.Never` (§2.2), so the common case needs no configuration
+- [x] `UPDATE`/`DELETE` no longer emit the relational base's `RETURNING 1`,
+      which Databricks rejects outright
+- [x] Extend `DatabricksModelValidator`: reject store-generated properties and
       concurrency tokens with messages that name the alternative
       (it already warns about wide `decimal` columns)
-- [ ] Replace the `Migrate()` DI failure with a clear `NotSupportedException`
-      pointing at Databricks-managed schema (§6)
-- [ ] Live integration tests: insert/update/delete, multi-entity saves, and the
-      atomicity difference between transports — re-run over Thrift as the query
-      suites already are
-- [ ] README: document the per-transport atomicity guarantees and the
-      client-generated-key requirement (partly written already)
+- [x] Replace the `Migrate()` DI failure with a clear `NotSupportedException`
+      pointing at Databricks-managed schema (§6), via a `DatabricksMigrator`
+      registered for `IMigrator`
+- [x] Live integration tests: insert/update/delete, multi-entity saves, atomic
+      rollback of a failing batch, the `AutoTransactionBehavior.Never` escape
+      hatch, and commit/rollback of an explicit transaction over Thrift
+- [x] README: document the per-transport atomicity guarantees, the
+      `catalogManaged` requirement and the client-generated-key requirement
+- [x] `IsPackable` flipped. The EF provider is versioned independently (major
+      tracks the EF Core major), so it is released by its own `efcore-v*` tag and
+      excluded from the solution-wide `v*` pack — see `.github/workflows/release.yml`.
 
-**Exit criteria:** CRUD round-trips against a live warehouse on both transports,
-atomicity guarantees documented per transport, and `IsPackable` flipped to ship
-the preview.
+**Exit criteria (met):** CRUD round-trips against a live warehouse on both
+transports, atomicity guarantees documented per transport, and `IsPackable`
+flipped to ship the preview.
 
 ### Post-MVP
 
@@ -450,8 +486,10 @@ offline SQL-generation tests:
 - **`LIMIT` must be an `INT` expression.** `OFFSET` requires a `LIMIT`, and a
   `BIGINT` bound is rejected with `INVALID_LIMIT_LIKE_EXPRESSION.DATA_TYPE`, so
   an unbounded skip emits `LIMIT ALL`.
-- **`COUNT` returns `BIGINT`.** EF materializes `Count` as `int` and the reader
-  will not narrow, so the generator wraps it in `CAST(... AS INT)`.
+- **`COUNT` returns `BIGINT`, and so does `SUM` over any integral column**
+  (`SUM` over a `FLOAT` returns `DOUBLE`). EF materializes `Count`/`Sum` after
+  the CLR selector and the reader will not narrow, so the generator wraps those
+  aggregates in `CAST(... AS INT)`/`CAST(... AS FLOAT)`.
 - **The relational base translates almost nothing.**
   `RelationalMemberTranslatorProvider` ships with an empty translator list, and
   the method-call base does not cover `StartsWith`/`Contains`, so a provider
@@ -466,6 +504,23 @@ offline SQL-generation tests:
 - **`''` is not an escaped quote.** Spark reads adjacent literals and
   concatenates them, so EF's default doubling drops the quote instead of
   escaping it; backslash escaping is required.
+- **`NULL`s sort first ascending, last descending.** EF emits no explicit
+  `NULLS FIRST`/`NULLS LAST` clause, so this is what applications see. It matches
+  SQL Server ascending but is the inverse of PostgreSQL.
+- **`RETURNING` does not exist.** The relational `UpdateSqlGenerator` appends
+  `RETURNING 1` to every `UPDATE`/`DELETE` to learn the rows affected; Databricks
+  fails that with `PARSE_SYNTAX_ERROR`, so both operations are overridden to emit
+  plain DML.
+- **`EXECUTE IMMEDIATE` rejects SQL scripts.** The Thrift transport binds named
+  parameters through it, so a `BEGIN ATOMIC … END;` block can never be used over
+  Thrift (`SQL_SCRIPT_IN_EXECUTE_IMMEDIATE`).
+- **Transactional writes need `delta.feature.catalogManaged`.** Both transaction
+  modes fail on an ordinary Delta table with
+  `TRANSACTION_NOT_SUPPORTED.WRITE_NON_CATALOG_MANAGED_TABLE`.
+- **Interactive transactions conflict at table scope.** A save inside one fails
+  with `DELTA_CONCURRENT_DELETE_READ` if anything else deletes from the table
+  concurrently — which is why the integration assemblies run their suites
+  serially.
 
 ## 9. Open questions
 

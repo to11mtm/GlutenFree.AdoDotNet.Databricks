@@ -121,8 +121,8 @@ db.GetTable<Order>()
 ## Entity Framework Core (preview)
 
 `GlutenFree.EntityFrameworkCore.Databricks` is an EF Core **10** provider (targets `net10.0`;
-the package major tracks the EF Core major). It is a preview: the query pipeline works, and
-`SaveChanges` and migrations are still being built out.
+the package major tracks the EF Core major). It is a preview: querying and `SaveChanges` both
+work, and migrations are deliberately out of scope (see below).
 
 ```csharp
 using Microsoft.EntityFrameworkCore;
@@ -157,16 +157,23 @@ Databricks functions for the common `string`/date/`Math` translations
 Preview caveats:
 
 - **Keys must be client-generated.** Databricks cannot report store-generated values back to
-  EF, so configure `ValueGeneratedNever()` (identity columns and concurrency tokens are not
-  supported yet).
+  EF, so every property defaults to `ValueGeneratedNever()` and the provider refuses a model
+  that configures store generation or a concurrency token, rather than failing silently at
+  runtime.
 - **Wide `DECIMAL` columns need `DatabricksDecimal`.** Databricks allows `DECIMAL(38, s)`,
   which is more precision than .NET's `decimal` can hold. Declare such properties as
   `DatabricksDecimal` for a lossless mapping — the provider warns at model-validation time if
   a `decimal` is pointed at a column wider than precision 28. (Note that `Sum`/`Average` have
   no LINQ overloads for a custom struct, so aggregate over a projected `decimal` instead.)
-- **`SaveChanges` issues one statement per command.** With the REST transport it is therefore
-  not atomic across entities; use the Thrift transport (real transactions) when you need
-  atomicity. See [Current Limitations](#current-limitations).
+- **`SaveChanges` is atomic, but the mechanism differs per transport.**
+  Over Thrift, EF opens a real transaction (`BEGIN TRANSACTION` … `COMMIT`). Over the stateless
+  REST transport it cannot, so the provider submits the whole batch as one
+  `BEGIN ATOMIC … END;` compound statement instead — one round trip, all-or-nothing.
+  Either way the target tables must be Unity Catalog managed tables with
+  `delta.feature.catalogManaged` enabled; without it Databricks refuses the write. On ordinary
+  Delta tables set `context.Database.AutoTransactionBehavior = AutoTransactionBehavior.Never`,
+  which sends each statement on its own and gives up atomicity.
+  See [Current Limitations](#current-limitations).
 - **Migrations are not supported, by design.** Lakehouse schema is normally managed by
   Databricks itself (notebooks/jobs, Delta Live Tables, Terraform, Unity Catalog), not by an
   application ORM — so point the provider at existing tables.
@@ -287,9 +294,11 @@ integration projects stay REST-only and have no dependency on the Thrift add-on.
   transactions (`BEGIN TRANSACTION` … `COMMIT`/`ROLLBACK`) as *session* state, so
   `BeginTransaction()` works only on the session-based
   [Thrift transport](#thrift-transport-opt-in); on the stateless REST transport it throws
-  `NotSupportedException`. On either transport you can submit a self-contained
+  `NotSupportedException`. You can also submit a self-contained
   `BEGIN ATOMIC … END;` block as a single statement for an atomic multi-statement unit
-  of work. Databricks additionally requires every table written to in a transaction to be
+  of work — on the REST transport with or without parameters, but on Thrift only without,
+  since Thrift binds named parameters through `EXECUTE IMMEDIATE`, which rejects SQL scripts.
+  Databricks additionally requires every table written to in a transaction to be
   a Unity Catalog managed Delta/Iceberg table with catalog commits enabled, forbids
   DDL/metadata operations inside an interactive transaction, allows one transaction at a
   time per connection, and has no savepoints. Conflicts are detected optimistically at
@@ -326,8 +335,12 @@ see [planning/integration-test-setup.md](planning/integration-test-setup.md).
 - **Integration** (`.github/workflows/integration.yml`): manual dispatch; requires
   `DATABRICKS_HOST` / `DATABRICKS_TOKEN` / `DATABRICKS_WAREHOUSE_ID` repository secrets.
 - **Release** (`.github/workflows/release.yml`): push a `v*` tag (e.g. `v0.1.0`) to build,
-  test, pack with that version, push both packages to NuGet (requires the `NUGET_API_KEY`
-  secret), and create a GitHub release. Packages include SourceLink, symbol packages
+  test, pack with that version, push the packages to NuGet, and create a GitHub release.
+  The EF Core provider is versioned independently — its major tracks the EF Core major — so
+  it is excluded from that pack and released by its own `efcore-v*` tag
+  (e.g. `efcore-v10.0.0`), against the ADO.NET version currently in `Directory.Build.props`.
+  Publishing uses NuGet Trusted Publishing (OIDC), which needs the `NUGET_USER` secret and a
+  `release` environment. Packages include SourceLink, symbol packages
   (`.snupkg`), XML docs, and this README; the repository URL is inferred from the git
   remote at pack time, so it stays correct after the repo moves to its organization.
 

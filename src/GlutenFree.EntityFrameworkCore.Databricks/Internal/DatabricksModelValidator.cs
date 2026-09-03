@@ -27,6 +27,48 @@ public partial class DatabricksModelValidator(
         base.Validate(model, logger);
 
         ValidateDecimalPrecision(model, logger);
+        ValidateNoStoreGeneratedValues(model);
+    }
+
+    /// <summary>
+    /// Rejects properties EF would expect the store to populate. Databricks has no
+    /// <c>RETURNING</c>/<c>OUTPUT</c> clause, so a store-generated value can never be read back
+    /// into the tracked entity, and a concurrency token cannot be checked because the provider
+    /// batches statements into a <c>BEGIN ATOMIC</c> block that reports no per-statement rows
+    /// affected. Both fail silently if left to run, so they are refused at model-validation time
+    /// with a message naming the alternative.
+    /// </summary>
+    private static void ValidateNoStoreGeneratedValues(IModel model)
+    {
+        foreach (var entityType in model.GetEntityTypes())
+        {
+            foreach (var property in entityType.GetDeclaredProperties())
+            {
+                if (property.ValueGenerated != ValueGenerated.Never)
+                {
+                    throw new InvalidOperationException(
+                        $"Property '{entityType.DisplayName()}.{property.Name}' is configured as "
+                        + $"store-generated ('{property.ValueGenerated}'), which Databricks cannot support: "
+                        + "there is no RETURNING/OUTPUT clause to read the generated value back after an "
+                        + "insert or update. Generate the value on the client instead — call "
+                        + "'ValueGeneratedNever()' and assign it yourself, or use a client-side value "
+                        + "generator such as a GUID.");
+                }
+
+                if (property.IsConcurrencyToken)
+                {
+                    throw new InvalidOperationException(
+                        $"Property '{entityType.DisplayName()}.{property.Name}' is configured as a "
+                        + "concurrency token, which this provider does not support yet. Optimistic "
+                        + "concurrency relies on the number of rows affected by each statement, and "
+                        + "Databricks does not report that per statement inside the atomic block the "
+                        + "provider uses to make SaveChanges all-or-nothing. Remove "
+                        + "'IsConcurrencyToken()' and handle conflicts in the application, or rely on "
+                        + "Delta's own optimistic concurrency, which fails the whole transaction on a "
+                        + "conflicting write.");
+                }
+            }
+        }
     }
 
     /// <summary>

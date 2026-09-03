@@ -2,6 +2,7 @@ using System.ComponentModel;
 using GlutenFree.EntityFrameworkCore.Databricks.Infrastructure.Internal;
 using GlutenFree.EntityFrameworkCore.Databricks.Internal;
 using GlutenFree.EntityFrameworkCore.Databricks.Metadata.Conventions;
+using GlutenFree.EntityFrameworkCore.Databricks.Migrations.Internal;
 using GlutenFree.EntityFrameworkCore.Databricks.Query.Internal;
 using GlutenFree.EntityFrameworkCore.Databricks.Storage.Internal;
 using GlutenFree.EntityFrameworkCore.Databricks.Update.Internal;
@@ -9,6 +10,7 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata.Conventions;
 using Microsoft.EntityFrameworkCore.Metadata.Conventions.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Query;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.EntityFrameworkCore.Update;
@@ -44,6 +46,7 @@ public static class DatabricksServiceCollectionExtensions
             .TryAdd<IRelationalConnection>(p => p.GetRequiredService<IDatabricksRelationalConnection>())
             .TryAdd<IRelationalTransactionFactory, DatabricksTransactionFactory>()
             .TryAdd<IRelationalDatabaseCreator, DatabricksDatabaseCreator>()
+            .TryAdd<IMigrator, DatabricksMigrator>()
             .TryAdd<IModificationCommandBatchFactory, DatabricksModificationCommandBatchFactory>()
             .TryAdd<IUpdateSqlGenerator, DatabricksUpdateSqlGenerator>()
             .TryAdd<IQuerySqlGeneratorFactory, DatabricksQuerySqlGeneratorFactory>()

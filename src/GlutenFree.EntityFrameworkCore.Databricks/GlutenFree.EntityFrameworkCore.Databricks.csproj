@@ -7,10 +7,13 @@
     <Description>Entity Framework Core provider for Databricks SQL warehouses, built on GlutenFree.Databricks.AdoNet.</Description>
     <PackageTags>databricks;entity-framework-core;efcore;sql;data;provider</PackageTags>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <!-- Provider version tracks the EF Core major. -->
+    <!-- Provider version tracks the EF Core major, so it does not follow the repo-wide version
+         that a `v*` tag drives. It is released by its own `efcore-v*` tag, which supplies
+         EfCoreProviderVersion and PackEfCoreProvider; excluded from the solution-wide pack
+         otherwise so it cannot be published with the wrong version. -->
     <VersionPrefix>10.0.0</VersionPrefix>
-    <!-- Not shipped yet: the provider is a skeleton, so keep it out of release packing. -->
-    <IsPackable>false</IsPackable>
+    <Version Condition="'$(EfCoreProviderVersion)' != ''">$(EfCoreProviderVersion)</Version>
+    <IsPackable Condition="'$(PackEfCoreProvider)' != 'true'">false</IsPackable>
   </PropertyGroup>
 
   <ItemGroup>

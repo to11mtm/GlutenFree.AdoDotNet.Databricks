@@ -18,3 +18,12 @@ public sealed class ThriftEfCoreTranslationIntegrationTests : EfCoreTranslationI
 
 /// <inheritdoc />
 public sealed class ThriftEfCoreBulkOperationIntegrationTests : EfCoreBulkOperationIntegrationTests;
+
+/// <inheritdoc />
+public sealed class ThriftEfCoreGroupingIntegrationTests : EfCoreGroupingIntegrationTests;
+
+/// <inheritdoc />
+public sealed class ThriftEfCoreNullSemanticsIntegrationTests : EfCoreNullSemanticsIntegrationTests;
+
+/// <inheritdoc />
+public sealed class ThriftEfCoreSaveChangesIntegrationTests : EfCoreSaveChangesIntegrationTests;

@@ -87,6 +87,26 @@ public sealed class DatabricksConnection : DbConnection
     internal IDatabricksTransport Transport
         => _transport ?? throw new InvalidOperationException("The connection is not open.");
 
+    /// <summary>
+    /// Whether this connection can begin a transaction — i.e. whether its transport maintains a
+    /// session that <c>BEGIN TRANSACTION</c> state can live in.
+    /// </summary>
+    /// <remarks>
+    /// Readable before the connection is opened, so callers that must plan a unit of work ahead
+    /// of time (an ORM deciding between an explicit transaction and a self-contained
+    /// <c>BEGIN ATOMIC ... END;</c> block) can do so without connecting. The default REST
+    /// transport is stateless and returns <see langword="false" />; the Thrift transport returns
+    /// <see langword="true" />.
+    /// </remarks>
+    public bool SupportsTransactions
+        => _transport?.SupportsTransactions ?? DeclaredTransportSupportsTransactions;
+
+    /// <summary>
+    /// What <see cref="SupportsTransactions" /> reports until the transport actually exists. Set
+    /// alongside <see cref="TransportFactory" /> by whoever installs a transport.
+    /// </summary>
+    internal bool DeclaredTransportSupportsTransactions { get; set; }
+
     /// <inheritdoc />
     /// <remarks>
     /// Genuinely synchronous: credential acquisition uses synchronous HTTP. Prefer

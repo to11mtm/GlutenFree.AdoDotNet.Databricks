@@ -51,25 +51,55 @@ public class DatabricksQuerySqlGenerator(QuerySqlGeneratorDependencies dependenc
 
     /// <inheritdoc />
     /// <remarks>
-    /// Databricks' <c>COUNT</c> returns <c>BIGINT</c>, but EF materializes
-    /// <see cref="Queryable.Count{TSource}(IQueryable{TSource})" /> as an <see cref="int" /> and
-    /// the data reader will not narrow a <c>BIGINT</c> column. Narrowing in SQL keeps the
-    /// aggregate's semantics (<c>DISTINCT</c>, predicates and selectors are all still produced by
-    /// the shared translator) while giving EF the type it expects. <c>LongCount</c> translates to
-    /// a <see cref="long" />-typed <c>COUNT</c> and is left alone.
+    /// Databricks widens the result type of some aggregates beyond what EF materializes them as,
+    /// and the data reader will not narrow a value implicitly:
+    /// <list type="bullet">
+    /// <item><description><c>COUNT</c> returns <c>BIGINT</c>, but
+    /// <see cref="Queryable.Count{TSource}(IQueryable{TSource})" /> materializes as an
+    /// <see cref="int" /> (<c>LongCount</c> produces a <see cref="long" />-typed <c>COUNT</c> and
+    /// is left alone).</description></item>
+    /// <item><description><c>SUM</c> over any integral column returns <c>BIGINT</c>, and over a
+    /// <c>FLOAT</c> column returns <c>DOUBLE</c>, but <c>Sum</c> is typed after its
+    /// selector.</description></item>
+    /// </list>
+    /// Narrowing in SQL keeps the aggregate's semantics (<c>DISTINCT</c>, predicates and selectors
+    /// are all still produced by the shared translator) while giving EF the type it expects.
     /// </remarks>
     protected override Expression VisitSqlFunction(SqlFunctionExpression sqlFunctionExpression)
     {
-        if (sqlFunctionExpression.Type == typeof(int)
-            && string.Equals(sqlFunctionExpression.Name, "COUNT", StringComparison.OrdinalIgnoreCase))
+        var narrowTo = NarrowedAggregateStoreType(sqlFunctionExpression);
+        if (narrowTo is not null)
         {
             Sql.Append("CAST(");
             base.VisitSqlFunction(sqlFunctionExpression);
-            Sql.Append(" AS INT)");
+            Sql.Append(" AS ").Append(narrowTo).Append(")");
             return sqlFunctionExpression;
         }
 
         return base.VisitSqlFunction(sqlFunctionExpression);
+    }
+
+    /// <summary>
+    /// The store type an aggregate's result must be narrowed to, or <see langword="null" /> when
+    /// Databricks already returns the type EF expects.
+    /// </summary>
+    private static string? NarrowedAggregateStoreType(SqlFunctionExpression function)
+    {
+        var clrType = Nullable.GetUnderlyingType(function.Type) ?? function.Type;
+
+        if (string.Equals(function.Name, "COUNT", StringComparison.OrdinalIgnoreCase))
+        {
+            return clrType == typeof(int) ? "INT" : null;
+        }
+
+        if (string.Equals(function.Name, "SUM", StringComparison.OrdinalIgnoreCase))
+        {
+            return clrType == typeof(int) ? "INT"
+                : clrType == typeof(float) ? "FLOAT"
+                : null;
+        }
+
+        return null;
     }
 
     /// <inheritdoc />
