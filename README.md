@@ -118,6 +118,20 @@ db.GetTable<Order>()
     .Merge();
 ```
 
+The provider generates Databricks-native SQL: backtick-quoted identifiers, `:name` parameter
+markers, `||` string concatenation (Spark's `+` is arithmetic only), backslash-escaped string
+literals, `LIMIT`/`OFFSET` paging, `INNER`/`LEFT JOIN LATERAL` for `CROSS`/`OUTER APPLY`, and
+MERGE-based upserts.
+
+**Wide `DECIMAL` columns need `DatabricksDecimal`.** Databricks allows `DECIMAL(38, s)`, which is
+more precision than .NET's `decimal` can hold, so map such columns to `DatabricksDecimal` for a
+lossless round trip — a `decimal` property throws `OverflowException`, and only for the rows that
+actually use the extra digits.
+
+Transactions need the [Thrift transport](#thrift-transport-opt-in): use
+`GlutenFree.Databricks.AdoNet.Linq2Db.Thrift`'s `DatabricksThriftTools`, whose provider flavor
+declares `TransactionsSupported=true`.
+
 ## Entity Framework Core (preview)
 
 `GlutenFree.EntityFrameworkCore.Databricks` is an EF Core **10** provider (targets `net10.0`;
