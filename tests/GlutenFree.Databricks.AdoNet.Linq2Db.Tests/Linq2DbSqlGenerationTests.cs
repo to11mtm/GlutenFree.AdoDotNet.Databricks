@@ -205,6 +205,37 @@ public class Linq2DbSqlGenerationTests
     }
 
     [Fact]
+    public void String_concatenation_uses_the_pipe_operator()
+    {
+        // Spark's '+' is arithmetic only: given string operands it fails with
+        // DATATYPE_MISMATCH.BINARY_OP_WRONG_TYPE, or silently yields NULL when they happen to be
+        // coercible. Databricks spells concatenation '||'.
+        var (db, transport) = CreateDb();
+        using var _ = db;
+        transport.NextResponse = EmptyResult("label");
+
+        db.GetTable<Customer>().Select(c => c.Name + "-x").ToList();
+
+        var sql = GetSql(transport);
+        Assert.Contains("||", sql);
+        Assert.DoesNotContain(" + ", sql);
+    }
+
+    [Fact]
+    public void String_concatenation_of_a_non_string_operand_casts_it()
+    {
+        var (db, transport) = CreateDb();
+        using var _ = db;
+        transport.NextResponse = EmptyResult("label");
+
+        db.GetTable<Customer>().Select(c => c.Name + "-" + c.Id).ToList();
+
+        var sql = GetSql(transport);
+        Assert.Contains("|| CAST(`c_1`.`id` AS STRING)", sql);
+        Assert.DoesNotContain(" + ", sql);
+    }
+
+    [Fact]
     public void Exists_subquery_generates_exists()
     {
         var (db, transport) = CreateDb();

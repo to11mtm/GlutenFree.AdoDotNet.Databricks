@@ -76,6 +76,15 @@ public class DatabricksSqlBuilder : BasicSqlBuilder
     protected override string OffsetFormat(SelectQuery selectQuery) => "OFFSET {0}";
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Databricks spells string concatenation <c>||</c>. Its <c>+</c> is arithmetic only: given
+    /// string operands it either fails with <c>DATATYPE_MISMATCH.BINARY_OP_WRONG_TYPE</c> or, when
+    /// the operands happen to be coercible, silently returns <c>NULL</c> — so the default
+    /// <c>ConcatBuildStyle.Plus</c> is not usable.
+    /// </remarks>
+    protected override ConcatBuildStyle ConcatStyle => ConcatBuildStyle.Pipes;
+
+    /// <inheritdoc />
     public override StringBuilder Convert(StringBuilder sb, string value, ConvertType convertType)
     {
         switch (convertType)

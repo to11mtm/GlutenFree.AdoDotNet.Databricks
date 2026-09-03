@@ -30,4 +30,20 @@ public class DatabricksSqlOptimizer : BasicSqlOptimizer
             _ => statement,
         };
     }
+
+    /// <inheritdoc />
+    public override SqlExpressionConvertVisitor CreateConvertVisitor(bool allowModify)
+        => new DatabricksSqlExpressionConvertVisitor(allowModify);
+
+    private sealed class DatabricksSqlExpressionConvertVisitor(bool allowModify)
+        : SqlExpressionConvertVisitor(allowModify)
+    {
+        /// <inheritdoc />
+        /// <remarks>
+        /// Databricks' <c>||</c> coerces a non-string operand to <c>STRING</c> on its own, so the
+        /// explicit casts the base class adds for <c>+</c>-style concatenation are only noise.
+        /// </remarks>
+        protected override bool ConcatRequiresExplicitStringCast => false;
+    }
 }
+

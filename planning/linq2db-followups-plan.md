@@ -5,6 +5,53 @@ Optional work identified after shipping `GlutenFree.Databricks.AdoNet.Linq2Db.Th
 current functionality; they are captured here for future prioritization. No code has
 been changed for any item yet.
 
+## 0. Cross-checks from the EF Core provider — **DONE**
+
+Building the EF Core provider (planning/efcore-provider-plan.md) surfaced a set of Spark
+dialect behaviors that only appear against a live warehouse. Each was re-checked against
+linq2db's translation; two were real defects and are fixed.
+
+**Fixed:**
+
+- **String concatenation emitted `+`.** linq2db's default `ConcatBuildStyle.Plus` produced
+  `Coalesce(name, '') + '-x'`, which Databricks rejects with
+  `DATATYPE_MISMATCH.BINARY_OP_WRONG_TYPE` (and which silently yields `NULL` whenever the
+  operands happen to be coercible — the failure mode EF hit). Fixed by overriding
+  `DatabricksSqlBuilder.ConcatStyle => ConcatBuildStyle.Pipes`, plus
+  `ConcatRequiresExplicitStringCast => false` on a provider convert visitor, since Databricks'
+  `||` coerces non-string operands itself. Note linq2db's `COALESCE(x, '')` wrapping is
+  *desirable* here: it makes `null + "x" == "x"` match .NET, where bare Spark `||` returns NULL.
+- **`DECIMAL(29..38, s)` columns were unreadable.** The data reader hands wide values back as
+  `SqlDecimal`; a `DatabricksDecimal` property failed with `LinqToDBConvertException` and a
+  `decimal` property overflowed. Fixed with `SetConvertExpression` pairs between
+  `DatabricksDecimal` and `SqlDecimal`/`decimal`/`string` in `DatabricksMappingSchema`, plus a
+  value-to-SQL converter for literals — mirroring the EF provider's decision to treat
+  `DatabricksDecimal` as a first-class CLR type rather than routing through a converter.
+
+**Checked, no change needed** (now pinned by `Linq2DbDialectQuirksIntegrationTests`):
+
+- **Unbounded `Skip`.** linq2db emits a bare `OFFSET n`, which Databricks accepts. EF's problem
+  was different: it emitted `LIMIT 9223372036854775807`, and the limit must be an `INT`.
+- **Integral aggregate widening.** Databricks returns `BIGINT` for `COUNT`/`SUM` and `DOUBLE`
+  for `AVG`, but linq2db's value converters narrow on read, so — unlike EF, which needed
+  `CAST(... AS INT)` in generated SQL — nothing has to change.
+- **String-literal escaping.** `DatabricksMappingSchema` already escapes with backslashes; the
+  EF provider had to learn this separately.
+- **`APPLY` → `LATERAL`.** Already handled in `DatabricksSqlBuilder.BuildJoinType`.
+- **NULL comparison/`COALESCE` semantics** behave as .NET expects. `NULL`s sort first ascending
+  and last descending (the inverse of PostgreSQL); linq2db emits no explicit `NULLS` clause, so
+  that Spark default is what callers see.
+
+**Deliberately not carried over:**
+
+- **Model validation.** The EF provider warns when a `decimal` is mapped to a column wider than
+  precision 28, and rejects store-generated keys and concurrency tokens. linq2db has no model
+  validation phase to hook, so these stay documentation (README) rather than diagnostics.
+- **Atomic batching.** The EF provider wraps a `SaveChanges` batch in `BEGIN ATOMIC … END;` over
+  REST because EF demands a transaction it cannot open. linq2db has no equivalent unit-of-work
+  requirement — callers compose their own statements — so the Thrift flavor's real transactions
+  remain the whole story.
+
 ## 1. DI-friendly registration (linq2db semantics)
 
 ### 1.1 Background: how linq2db 6.x DI works
