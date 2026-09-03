@@ -33,4 +33,12 @@ public class TargetingTests
         Assert.NotNull(efCore);
         Assert.Equal(10, efCore.Version?.Major);
     }
+
+    [Fact]
+    public void Provider_version_major_is_the_ef_core_major()
+    {
+        // The package version is `10.<repo version>`, so a v0.3.0 tag publishes 10.0.3.0.
+        // This guards the rule in the csproj against being flattened back to the repo version.
+        Assert.Equal(10, s_provider.GetName().Version?.Major);
+    }
 }

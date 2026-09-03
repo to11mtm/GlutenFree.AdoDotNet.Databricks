@@ -2,12 +2,14 @@ name: Release
 
 # Publishes to NuGet when a version tag is pushed.
 #
-# Two tag shapes, because the EF Core provider is versioned independently — its major tracks
-# the EF Core major (10.x), not the repo-wide version:
-#   v*         e.g. v0.2.0             -> packs every shippable project except the EF provider
-#   efcore-v*  e.g. efcore-v10.0.0     -> packs only GlutenFree.EntityFrameworkCore.Databricks,
-#                                         against the ADO.NET version currently in
-#                                         Directory.Build.props (which must already be published)
+# Two tag shapes, because the EF Core provider's major tracks the EF Core major rather than the
+# repo-wide version:
+#   v*         e.g. v0.3.0          -> packs everything. The ADO.NET packages get 0.3.0 and the
+#                                      EF provider gets 10.0.3.0 (EF major + repo version).
+#   efcore-v*  e.g. efcore-v10.1.0  -> packs only GlutenFree.EntityFrameworkCore.Databricks, at
+#                                      exactly that version, against the ADO.NET version
+#                                      currently in Directory.Build.props (already published).
+#                                      For when a new EF Core minor lands on its own.
 #
 # Uses NuGet Trusted Publishing (OIDC): a trusted publishing policy on nuget.org for
 # this repo + release.yml exchanges a GitHub OIDC token for a short-lived API key.
@@ -63,7 +65,7 @@ jobs:
             dotnet build --configuration Release \
               "/p:EfCoreProviderVersion=${{ steps.version.outputs.version }}"
           else
-            dotnet build --configuration Release "/p:Version=${{ steps.version.outputs.version }}"
+            dotnet build --configuration Release "/p:ReleaseVersion=${{ steps.version.outputs.version }}"
           fi
 
       - name: Test
@@ -74,10 +76,10 @@ jobs:
           if [ "${{ steps.version.outputs.efcore }}" = "true" ]; then
             dotnet pack src/GlutenFree.EntityFrameworkCore.Databricks/GlutenFree.EntityFrameworkCore.Databricks.csproj \
               --no-build --configuration Release --output artifacts \
-              "/p:EfCoreProviderVersion=${{ steps.version.outputs.version }}" /p:PackEfCoreProvider=true
+              "/p:EfCoreProviderVersion=${{ steps.version.outputs.version }}"
           else
             dotnet pack --no-build --configuration Release --output artifacts \
-              "/p:Version=${{ steps.version.outputs.version }}"
+              "/p:ReleaseVersion=${{ steps.version.outputs.version }}"
           fi
 
       - name: NuGet login (OIDC -> temp API key)

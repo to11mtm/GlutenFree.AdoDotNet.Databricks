@@ -31,13 +31,15 @@ existing pattern (core ADO.NET package + independent add-ons):
   `net8.0` from `Directory.Build.props` with `<TargetFramework>net10.0</TargetFramework>`;
   the core `GlutenFree.Databricks.AdoNet` (net8.0) package is consumable from
   net10.0 as-is. Third-party providers track EF majors via release branches,
-  not multi-TFM builds (npgsql precedent). Version the package to track the EF
-  major (10.x for EF 10), documented in the README. CI needs the .NET 10 SDK.
+  not multi-TFM builds (npgsql precedent). The package version is
+  `10.<repo version>` — the major tracks the EF major, everything after it tracks
+  the repo release, so a `v0.3.0` tag publishes 10.0.3.0. An `efcore-v*` tag can
+  release the provider alone at an explicit version when a new EF Core minor
+  lands on its own. Documented in the README. CI needs the .NET 10 SDK.
 - Reference `Microsoft.EntityFrameworkCore.Relational` with
   `PrivateAssets="none"` so the EF analyzer flows to users (npgsql does this).
-- **`IsPackable=false` until Phase 2 lands** — the package should not ship while
-  `SaveChanges` is incomplete. Phase 2 is the gate for flipping it and cutting
-  the first preview.
+- ~~`IsPackable=false` until Phase 2 lands~~ — done: Phase 2 landed and the
+  package ships.
 
 ## 2. The two hard problems
 
@@ -430,9 +432,11 @@ something to hand out for feedback.
       hatch, and commit/rollback of an explicit transaction over Thrift
 - [x] README: document the per-transport atomicity guarantees, the
       `catalogManaged` requirement and the client-generated-key requirement
-- [x] `IsPackable` flipped. The EF provider is versioned independently (major
-      tracks the EF Core major), so it is released by its own `efcore-v*` tag and
-      excluded from the solution-wide `v*` pack — see `.github/workflows/release.yml`.
+- [x] `IsPackable` flipped. The EF provider is versioned `10.<repo version>` — its major
+      tracks the EF Core major, the rest tracks the repo release — so a `v0.3.0` tag
+      publishes 10.0.3.0 alongside the 0.3.0 ADO.NET packages it depends on. An
+      `efcore-v*` tag releases the provider alone at an explicit version, for when a new
+      EF Core minor lands on its own. See `.github/workflows/release.yml`.
 
 **Exit criteria (met):** CRUD round-trips against a live warehouse on both
 transports, atomicity guarantees documented per transport, and `IsPackable`

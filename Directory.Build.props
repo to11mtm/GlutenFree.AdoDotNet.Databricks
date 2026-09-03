@@ -10,5 +10,8 @@
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
     <Authors>to11mtm and contributors</Authors>
     <VersionPrefix>0.2.0</VersionPrefix>
+    <!-- Set by the release workflow from the pushed tag; empty for local/CI builds. Providers
+         with their own versioning scheme (the EF Core one) derive theirs from this. -->
+    <Version Condition="'$(ReleaseVersion)' != ''">$(ReleaseVersion)</Version>
   </PropertyGroup>
 </Project>

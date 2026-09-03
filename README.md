@@ -334,11 +334,12 @@ see [planning/integration-test-setup.md](planning/integration-test-setup.md).
   self-skip without credentials), and uploads pack artifacts.
 - **Integration** (`.github/workflows/integration.yml`): manual dispatch; requires
   `DATABRICKS_HOST` / `DATABRICKS_TOKEN` / `DATABRICKS_WAREHOUSE_ID` repository secrets.
-- **Release** (`.github/workflows/release.yml`): push a `v*` tag (e.g. `v0.1.0`) to build,
-  test, pack with that version, push the packages to NuGet, and create a GitHub release.
-  The EF Core provider is versioned independently — its major tracks the EF Core major — so
-  it is excluded from that pack and released by its own `efcore-v*` tag
-  (e.g. `efcore-v10.0.0`), against the ADO.NET version currently in `Directory.Build.props`.
+- **Release** (`.github/workflows/release.yml`): push a `v*` tag (e.g. `v0.3.0`) to build,
+  test, pack and push every package, then create a GitHub release. The EF Core provider's
+  major tracks the EF Core major, so it is versioned `10.<repo version>` — `v0.3.0` publishes
+  `GlutenFree.EntityFrameworkCore.Databricks` 10.0.3.0, depending on the 0.3.0 ADO.NET package
+  from the same tag. An `efcore-v*` tag (e.g. `efcore-v10.1.0`) releases just the EF provider at
+  exactly that version, for when a new EF Core minor lands on its own.
   Publishing uses NuGet Trusted Publishing (OIDC), which needs the `NUGET_USER` secret and a
   `release` environment. Packages include SourceLink, symbol packages
   (`.snupkg`), XML docs, and this README; the repository URL is inferred from the git
